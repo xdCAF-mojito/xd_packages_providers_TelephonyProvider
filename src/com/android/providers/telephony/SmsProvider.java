@@ -1,5 +1,6 @@
 /*
  * Copyright (C) 2006 The Android Open Source Project
+ * Copyright (C) 2010-2011, Code Aurora Forum. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -125,6 +126,14 @@ public class SmsProvider extends ContentProvider {
 
             case SMS_OUTBOX:
                 constructQueryForBox(qb, Sms.MESSAGE_TYPE_OUTBOX);
+                break;
+
+            case SMS_INBOX_SIM1:
+                constructQueryForBox(qb, Sms.MESSAGE_TYPE_INBOX_SUB1);
+                break;
+
+            case SMS_INBOX_SIM2:
+                constructQueryForBox(qb, Sms.MESSAGE_TYPE_INBOX_SUB2);
                 break;
 
             case SMS_ALL_ID:
@@ -357,6 +366,14 @@ public class SmsProvider extends ContentProvider {
 
             case SMS_INBOX:
                 type = Sms.MESSAGE_TYPE_INBOX;
+                break;
+
+            case SMS_INBOX_SIM1:
+                type = Sms.MESSAGE_TYPE_INBOX_SUB1;
+                break;
+
+            case SMS_INBOX_SIM2:
+                type = Sms.MESSAGE_TYPE_INBOX_SUB2;
                 break;
 
             case SMS_FAILED:
@@ -721,6 +738,8 @@ public class SmsProvider extends ContentProvider {
     private static final int SMS_FAILED_ID = 25;
     private static final int SMS_QUEUED = 26;
     private static final int SMS_UNDELIVERED = 27;
+    private static final int SMS_INBOX_SIM1 = 28;
+    private static final int SMS_INBOX_SIM2 = 29;
 
     private static final UriMatcher sURLMatcher =
             new UriMatcher(UriMatcher.NO_MATCH);
@@ -754,6 +773,9 @@ public class SmsProvider extends ContentProvider {
         //we keep these for not breaking old applications
         sURLMatcher.addURI("sms", "sim", SMS_ALL_ICC);
         sURLMatcher.addURI("sms", "sim/#", SMS_ICC);
+        //URLs for the sms belongs to sim1 and sim2
+        sURLMatcher.addURI("sms", "inbox/sim1", SMS_INBOX_SIM1);
+        sURLMatcher.addURI("sms", "inbox/sim2", SMS_INBOX_SIM2);
 
         sConversationProjectionMap.put(Sms.Conversations.SNIPPET,
             "sms.body AS snippet");
