@@ -145,6 +145,7 @@ public class TelephonyProvider extends ContentProvider
                     "type TEXT," +
                     "current INTEGER," +
                     "protocol TEXT," +
+                    "profile_type TEXT," +
                     "roaming_protocol TEXT," +
                     "carrier_enabled BOOLEAN," +
                     "bearer INTEGER);");
@@ -241,12 +242,19 @@ public class TelephonyProvider extends ContentProvider
          * @return the row or null if it's not an apn
          */
         private ContentValues getRow(XmlPullParser parser) {
-            if (!"apn".equals(parser.getName())) {
+            ContentValues map = new ContentValues();
+            // get the profile type from the XML file tags
+            String prof_type = parser.getName();
+            if (prof_type == null) {
                 return null;
             }
-
-            ContentValues map = new ContentValues();
-
+            if (prof_type.equals("apn")) {
+                map.put(Telephony.Carriers.PROFILE_TYPE, "apn");
+            } else if (prof_type.equals("nai")) {
+                map.put(Telephony.Carriers.PROFILE_TYPE, "nai");
+            } else {
+                return null;
+            }
             String mcc = parser.getAttributeValue(null, "mcc");
             String mnc = parser.getAttributeValue(null, "mnc");
             String numeric = mcc + mnc;
