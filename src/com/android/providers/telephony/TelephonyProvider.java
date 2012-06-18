@@ -243,6 +243,9 @@ public class TelephonyProvider extends ContentProvider
             ContentValues map = new ContentValues();
             // get the profile type from the XML file tags
             String prof_type = parser.getName();
+            if (prof_type == null) {
+                return null;
+            }
             if (prof_type.equals("apn")) {
                 map.put(Telephony.Carriers.PROFILE_TYPE, "apn");
             } else if (prof_type.equals("nai")) {
