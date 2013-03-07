@@ -3,6 +3,8 @@ include $(CLEAR_VARS)
 
 LOCAL_MODULE_TAGS := optional
 
+LOCAL_JAVA_LIBRARIES := com.qrd.plugin.feature_query
+
 LOCAL_SRC_FILES := $(call all-subdir-java-files)
 
 LOCAL_PACKAGE_NAME := TelephonyProvider
