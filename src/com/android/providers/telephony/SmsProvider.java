@@ -39,10 +39,15 @@ import android.provider.Telephony.MmsSms;
 import android.provider.Telephony.Sms;
 import android.provider.Telephony.TextBasedSmsColumns;
 import android.provider.Telephony.Threads;
+import android.telephony.MSimSmsManager;
+import android.telephony.MSimTelephonyManager;
 import android.telephony.SmsManager;
 import android.telephony.SmsMessage;
+import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.util.Log;
+import java.io.ByteArrayOutputStream;
+import android.text.format.Time;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -50,16 +55,33 @@ import java.util.HashMap;
 public class SmsProvider extends ContentProvider {
     private static final Uri NOTIFICATION_URI = Uri.parse("content://sms");
     private static final Uri ICC_URI = Uri.parse("content://sms/icc");
+    private static final Uri ICC1_URI = Uri.parse("content://sms/icc1");
+    private static final Uri ICC2_URI = Uri.parse("content://sms/icc2");
     static final String TABLE_SMS = "sms";
+    static final String TABLE_ICC_SMS = "iccsms";
     private static final String TABLE_RAW = "raw";
     private static final String TABLE_SR_PENDING = "sr_pending";
     private static final String TABLE_WORDS = "words";
+
+    /** Free space (TS 51.011 10.5.3). */
+    static public final int STATUS_ON_SIM_FREE      = 0;
+    /** Received and read (TS 51.011 10.5.3). */
+    static public final int STATUS_ON_SIM_READ      = 1;
+    /** Received and unread (TS 51.011 10.5.3). */
+    static public final int STATUS_ON_SIM_UNREAD    = 3;
+    /** Stored and sent (TS 51.011 10.5.3). */
+    static public final int STATUS_ON_SIM_SENT      = 5;
+    /** Stored and unsent (TS 51.011 10.5.3). */
+    static public final int STATUS_ON_SIM_UNSENT    = 7;
 
     private static final Integer ONE = Integer.valueOf(1);
 
     private static final String[] CONTACT_QUERY_PROJECTION =
             new String[] { Contacts.Phones.PERSON_ID };
     private static final int PERSON_ID_COLUMN = 0;
+    private static boolean mHasReadIcc = false;
+    private static boolean mHasReadIcc1 = false;
+    private static boolean mHasReadIcc2 = false;
 
     /**
      * These are the columns that are available when reading SMS
@@ -81,7 +103,8 @@ public class SmsProvider extends ContentProvider {
         "type",                         // Always MESSAGE_TYPE_ALL.
         "locked",                       // Always 0 (false).
         "error_code",                   // Always 0
-        "_id"
+        "_id",
+        "sub_id"
     };
 
     @Override
@@ -213,10 +236,26 @@ public class SmsProvider extends ContentProvider {
             case SMS_ALL_ICC:
                 return getAllMessagesFromIcc();
 
-            case SMS_ICC:
+            case SMS_ICC: {
                 String messageIndexString = url.getPathSegments().get(1);
-
                 return getSingleMessageFromIcc(messageIndexString);
+            }
+
+            case SMS_ALL_ICC1:
+                return getAllMessagesFromIcc(SUB1);
+
+            case SMS_ICC1: {
+                String messageIndexString = url.getPathSegments().get(1);
+                return getSingleMessageFromIcc(messageIndexString, SUB1);
+                }
+
+            case SMS_ALL_ICC2:
+                return getAllMessagesFromIcc(SUB2);
+
+            case SMS_ICC2: {
+                String messageIndexString = url.getPathSegments().get(1);
+                return getSingleMessageFromIcc(messageIndexString, SUB2);
+                }
 
             default:
                 Log.e(TAG, "Invalid request: " + url);
@@ -242,33 +281,96 @@ public class SmsProvider extends ContentProvider {
     }
 
     private Object[] convertIccToSms(SmsMessage message, int id) {
+        return convertIccToSms(message, id, MSimSmsManager.getDefault().getPreferredSmsSubscription());
+    }
+    
+    private Object[] convertIccToSms(SmsMessage message, int id, int subscription) {
+        int statusOnIcc = message.getStatusOnIcc();
+        int type = Sms.MESSAGE_TYPE_ALL;
+        switch (statusOnIcc) {
+            case SmsManager.STATUS_ON_ICC_READ:
+            case SmsManager.STATUS_ON_ICC_UNREAD:
+                type = Sms.MESSAGE_TYPE_INBOX;
+                break;
+            case SmsManager.STATUS_ON_ICC_SENT:
+                type = Sms.MESSAGE_TYPE_SENT;
+                break;
+            case SmsManager.STATUS_ON_ICC_UNSENT:
+                type = Sms.MESSAGE_TYPE_OUTBOX;
+                break;
+        }
+
+        String displayOriginatingAddress = message.getDisplayOriginatingAddress();
         // N.B.: These calls must appear in the same order as the
         // columns appear in ICC_COLUMNS.
-        Object[] row = new Object[13];
+        Object[] row = new Object[14];
         row[0] = message.getServiceCenterAddress();
-        row[1] = message.getDisplayOriginatingAddress();
+        //row[1] = (type == Sms.MESSAGE_TYPE_INBOX) ? displayOriginatingAddress
+        //            : message.getRecipientddress();
+        row[1] = displayOriginatingAddress;
         row[2] = String.valueOf(message.getMessageClass());
         row[3] = message.getDisplayMessageBody();
         row[4] = message.getTimestampMillis();
-        row[5] = Sms.STATUS_NONE;
+        row[5] = message.getStatusOnIcc();//Sms.STATUS_NONE;
         row[6] = message.getIndexOnIcc();
         row[7] = message.isStatusReportMessage();
         row[8] = "sms";
-        row[9] = TextBasedSmsColumns.MESSAGE_TYPE_ALL;
+        row[9] = type;
         row[10] = 0;      // locked
         row[11] = 0;      // error_code
         row[12] = id;
+        row[13] = subscription;
         return row;
+    }
+
+    private Uri getIccUri(int subscription) {
+        switch (subscription) {
+            case SUB1:
+                return ICC1_URI;
+            case SUB2:
+                return ICC2_URI;
+            default:
+                Log.e(TAG, "Invalid subscription: " + subscription);
+                return ICC_URI;
+        }
+    }
+
+    /**
+     * Return a Cursor listing all the messages stored on the ICC.
+     */
+    private Cursor getAllMessagesFromIcc() {
+        return getAllMessagesFromIcc(MSimSmsManager.getDefault().getPreferredSmsSubscription(), ICC_URI);
     }
 
     /**
      * Return a Cursor containing just one message from the ICC.
      */
     private Cursor getSingleMessageFromIcc(String messageIndexString) {
+        return getSingleMessageFromIcc(messageIndexString,
+                    MSimSmsManager.getDefault().getPreferredSmsSubscription(), ICC_URI);
+    }
+
+    /**
+     * Return a Cursor containing just one message from the ICC.
+     */
+    private Cursor getSingleMessageFromIcc(String messageIndexString, int subscription) {
+        return getSingleMessageFromIcc(messageIndexString,
+                    subscription, getIccUri(subscription));
+    }
+
+    /**
+     * Return a Cursor containing just one message from the ICC.
+     */
+    private Cursor getSingleMessageFromIcc(String messageIndexString, int subscription, Uri iccUri) {
         try {
             int messageIndex = Integer.parseInt(messageIndexString);
-            SmsManager smsManager = SmsManager.getDefault();
-            ArrayList<SmsMessage> messages = smsManager.getAllMessagesFromIcc();
+            ArrayList<SmsMessage> messages;
+            if (TelephonyManager.getDefault().isMultiSimEnabled()) {
+                MSimSmsManager smsManager = MSimSmsManager.getDefault();
+                messages = smsManager.getAllMessagesFromIcc(subscription);
+            } else {
+                messages = SmsManager.getAllMessagesFromIcc();
+            }
 
             SmsMessage message = messages.get(messageIndex);
             if (message == null) {
@@ -276,8 +378,8 @@ public class SmsProvider extends ContentProvider {
                         "Message not retrieved. ID: " + messageIndexString);
             }
             MatrixCursor cursor = new MatrixCursor(ICC_COLUMNS, 1);
-            cursor.addRow(convertIccToSms(message, 0));
-            return withIccNotificationUri(cursor);
+            cursor.addRow(convertIccToSms(message, 0, subscription));
+            return withIccNotificationUri(cursor,iccUri);
         } catch (NumberFormatException exception) {
             throw new IllegalArgumentException(
                     "Bad SMS ICC ID: " + messageIndexString);
@@ -287,23 +389,144 @@ public class SmsProvider extends ContentProvider {
     /**
      * Return a Cursor listing all the messages stored on the ICC.
      */
-    private Cursor getAllMessagesFromIcc() {
-        SmsManager smsManager = SmsManager.getDefault();
-        ArrayList<SmsMessage> messages = smsManager.getAllMessagesFromIcc();
-
-        final int count = messages.size();
-        MatrixCursor cursor = new MatrixCursor(ICC_COLUMNS, count);
-        for (int i = 0; i < count; i++) {
-            SmsMessage message = messages.get(i);
-            if (message != null) {
-                cursor.addRow(convertIccToSms(message, i));
+    private Cursor getAllMessagesFromIcc(int subscription, Uri iccUri) {
+        ArrayList<SmsMessage> messages = null;
+        if (TelephonyManager.getDefault().isMultiSimEnabled()) {
+            if((subscription == SUB1 && !mHasReadIcc1)
+                || (subscription == SUB2 && !mHasReadIcc2))
+            {
+                MSimSmsManager smsManager = MSimSmsManager.getDefault();
+                messages = smsManager.getAllMessagesFromIcc(subscription);
+                if(subscription == SUB1)
+                {
+                    mHasReadIcc1 = true;
+                }
+                else if(subscription == SUB2)
+                {
+                    mHasReadIcc2 = true;
+                }
+            }
+        } else {
+            if(!mHasReadIcc)
+            {
+                messages = SmsManager.getAllMessagesFromIcc();
+                mHasReadIcc = true;
             }
         }
-        return withIccNotificationUri(cursor);
+
+        if(messages != null)
+        {
+            final int count = messages.size();
+            MatrixCursor cursor = new MatrixCursor(ICC_COLUMNS, count);
+            for (int i = 0; i < count; i++) {
+                SmsMessage message = messages.get(i);
+                if (message != null) {
+                    cursor.addRow(convertIccToSms(message, i, subscription));
+                    insertSmsMessageToIccDatabase(message, subscription);
+                }
+            }
+        }
+
+        return withIccNotificationUri(querySmsOnIccDatabase(subscription, iccUri), iccUri);
     }
 
-    private Cursor withIccNotificationUri(Cursor cursor) {
-        cursor.setNotificationUri(getContext().getContentResolver(), ICC_URI);
+    private Cursor querySmsOnIccDatabase(int subscription, Uri iccUri)
+    {
+        String selectionStr = "sub_id = " + subscription;
+        SQLiteDatabase db = mOpenHelper.getReadableDatabase();
+        Cursor ret = db.query(TABLE_ICC_SMS, null, selectionStr, null,
+                              null, null, Sms.DEFAULT_SORT_ORDER);
+        ret.setNotificationUri(getContext().getContentResolver(), iccUri);
+        return ret;
+    }
+    
+    private Uri insertSmsMessageToIccDatabase(SmsMessage smsMessage, int subscription)
+    {
+        ContentValues values = new ContentValues(1);
+        String address = null;       
+        int index = smsMessage.getIndexOnIcc();
+        int status = smsMessage.getStatusOnSim();
+
+        int mailboxId = TextBasedSmsColumns.MESSAGE_TYPE_ALL;
+        if (status == STATUS_ON_SIM_READ
+            || status == STATUS_ON_SIM_UNREAD)
+        {
+            address = smsMessage.getDisplayOriginatingAddress();
+            mailboxId = TextBasedSmsColumns.MESSAGE_TYPE_INBOX;
+        }
+        else if (status == STATUS_ON_SIM_SENT)
+        {
+            //address = smsMessage.getRecipientddress();
+            mailboxId = TextBasedSmsColumns.MESSAGE_TYPE_SENT;
+        }
+        else
+        {
+            //address = smsMessage.getRecipientddress();
+            mailboxId = TextBasedSmsColumns.MESSAGE_TYPE_DRAFT;
+        }
+
+        values.put("service_center_address", smsMessage.getServiceCenterAddress());
+        values.put(Sms.ADDRESS, address);
+        values.put("message_class", String.valueOf(smsMessage.getMessageClass()));
+        values.put(Sms.BODY, smsMessage.getDisplayMessageBody());
+        values.put(Sms.DATE, smsMessage.getTimestampMillis()== 0 ? new Long(System.currentTimeMillis()): smsMessage.getTimestampMillis());
+        values.put(Sms.STATUS, Sms.STATUS_NONE);
+        values.put("is_status_report", -1);        
+        values.put("transport_type", "sms");
+        values.put(Sms.TYPE, mailboxId);
+        values.put("status_on_icc", status);
+
+        return insertMessageToIccDatabase(index, values, subscription);
+    }
+
+    /**
+      * Insert the message at index from SIM Sms Cache. 
+      * Return the inserted uri if successful.
+      */
+    private Uri insertMessageToIccDatabase(int index,
+                                           ContentValues values, int subscription)
+    {
+        if (index < 0)
+        {
+            return null;
+        }
+        String table = TABLE_ICC_SMS;
+        long rowID;
+        
+        values.put(Sms.SUB_ID, subscription);
+        values.put("index_on_icc", index);
+
+        SQLiteDatabase db = mOpenHelper.getWritableDatabase();
+        rowID = db.insert(table, "body", values);
+        if (rowID > 0)
+        {
+            Uri uri = Uri.parse("content://sms/" + table + "/" + rowID);
+            ContentResolver cr = getContext().getContentResolver();
+            cr.notifyChange(uri, null);
+            if (subscription == SUB1)
+            {
+                cr.notifyChange(ICC1_URI, null);
+            }
+            else if (subscription == SUB2)
+            {
+                cr.notifyChange(ICC2_URI, null);
+            }
+
+            return uri;
+        }
+        else
+        {
+            Log.e(TAG, "insertMessageToIccDatabase : failed! " + values.toString());
+            return null;
+        }
+    }
+
+    private Cursor getAllMessagesFromIcc(int subscription) {
+        return getAllMessagesFromIcc(subscription, getIccUri(subscription));
+    }
+
+    private Cursor withIccNotificationUri(Cursor cursor, Uri iccUri) {
+        cursor.setNotificationUri(getContext().getContentResolver(), iccUri);
         return cursor;
     }
 
@@ -401,7 +624,6 @@ public class SmsProvider extends ContentProvider {
             case SMS_RAW_MESSAGE:
                 table = "raw";
                 break;
-
             case SMS_STATUS_PENDING:
                 table = "sr_pending";
                 break;
@@ -413,6 +635,15 @@ public class SmsProvider extends ContentProvider {
             case SMS_NEW_THREAD_ID:
                 table = "canonical_addresses";
                 break;
+
+            case SMS_ALL_ICC:
+                return insertSmsToCard(initialValues);  
+
+            case SMS_ALL_ICC1:
+                return insertSmsToCard(initialValues, SUB1);
+
+            case SMS_ALL_ICC2:
+                return insertSmsToCard(initialValues, SUB2);
 
             default:
                 Log.e(TAG, "Invalid request: " + url);
@@ -468,6 +699,11 @@ public class SmsProvider extends ContentProvider {
                 db.delete(TABLE_SMS, "thread_id=? AND type=?",
                         new String[] { values.getAsString(Sms.THREAD_ID),
                                        Integer.toString(Sms.MESSAGE_TYPE_DRAFT) });
+            }
+
+            // Give the sms preferred sub id for third party app.
+            if (values.getAsInteger(Sms.SUB_ID) == null) {
+                values.put(Sms.SUB_ID, MSimSmsManager.getDefault().getPreferredSmsSubscription());
             }
 
             if (type == Sms.MESSAGE_TYPE_INBOX) {
@@ -537,6 +773,229 @@ public class SmsProvider extends ContentProvider {
         return null;
     }
 
+
+    private Uri insertSmsToCard(ContentValues values)
+    { 
+        return insertSmsToCard(values, MSimSmsManager.getDefault().getPreferredSmsSubscription());
+    }
+
+    /**
+      * Insert the message at index from SIM.  Return the Uri.
+      */
+    private Uri insertSmsToCard(ContentValues values, int subscription)
+    {
+        ContentValues modValues = new ContentValues(values);
+        Uri iccUri = ICC_URI;
+
+        if(TelephonyManager.getDefault().isMultiSimEnabled())
+        {
+            if(subscription == SUB1 && mHasReadIcc1)
+            {
+                iccUri = ICC1_URI;
+            }
+            else if(subscription == SUB2 && mHasReadIcc2)
+            {
+                iccUri = ICC2_URI;
+            }
+            else
+            {
+                return null;
+            }
+        }
+        else
+        {
+            if(!mHasReadIcc)
+            {
+                return null;
+            }
+        }
+
+        int validIccSmsCount = getValidSmsCount(subscription);
+        int iccSmsCountAll = -1;
+        Log.d(TAG, "insertSmsToCard: validIccSmsCount = "
+            +validIccSmsCount + ", iccSmsCountAll = " + iccSmsCountAll);
+
+        if(TelephonyManager.getDefault().isMultiSimEnabled())
+        {
+            iccSmsCountAll = MSimSmsManager.getDefault().getSmsCapCountOnIcc(subscription);
+        }
+        else
+        {
+            iccSmsCountAll = SmsManager.getDefault().getSmsCapCountOnIcc();
+        }
+
+        if (iccSmsCountAll <= 0)
+        {
+            return null;
+        }
+        if (validIccSmsCount == iccSmsCountAll)
+        {
+            return Uri.parse("content://sms/sim/full/failure");
+        }
+        String body = values.getAsString(Sms.BODY);
+        Long date = values.getAsLong(Sms.DATE);
+        int type = values.getAsInteger(Sms.TYPE);
+        String address = values.getAsString(Sms.ADDRESS);
+        int read = values.getAsInteger(Sms.READ);
+        /*
+            try
+            {
+                byte[] smsPdu = null;
+                byte[] smscPdu = null;
+                int status = STATUS_ON_SIM_READ;
+                if (type == Sms.MESSAGE_TYPE_INBOX)
+                {
+                    Time then = new Time();
+                    then.set(date);
+                    byte[] datepdu = formatDateToPduGSM(then);
+
+                    if (read == 0)
+                    {
+                        status = STATUS_ON_SIM_UNREAD;
+                    }
+
+                    //SmsMessage.DeliveryPdu pdus = SmsMessage.getDeliveryPdu(null, 
+                   //address, body, false, null, datepdu);
+                    SmsMessage.DeliveryPdu pdus = null;
+
+                    if (pdus == null)
+                    {
+                        return null;
+                    }
+                    smsPdu = pdus.encodedMessage;
+                    smscPdu = pdus.encodedScAddress;
+                }
+                else if (type == Sms.MESSAGE_TYPE_SENT)
+                {
+                    Time then = new Time();
+                    then.set(date);
+                    byte[] datepdu = formatDateToPduGSM(then);
+
+                    //SmsMessage.SubmitPdu pdus = SmsMessage.getSubmitPdu(null, 
+                    //address, body, false, datepdu);
+                    SmsMessage.SubmitPdu pdus = SmsMessage.getSubmitPdu(null, 
+                            address, body, false);
+                    if (pdus == null)
+                    {
+                        return null;
+                    }
+                    smsPdu = pdus.encodedMessage;
+                    smscPdu = pdus.encodedScAddress;
+                    status = STATUS_ON_SIM_SENT;
+                }
+                else
+                {
+                    SmsMessage.SubmitPdu pdus = SmsMessage.getSubmitPdu(null, 
+                        address, body, false);
+
+                    if (pdus == null)
+                    {
+                        return null;
+                    }
+                    smsPdu = pdus.encodedMessage;
+                    smscPdu = pdus.encodedScAddress;
+                    status = STATUS_ON_SIM_UNSENT;
+                }
+
+                if (smscPdu == null)
+                {
+                    smscPdu = getSmsCenterZero();
+                }
+
+                int cmgwIndex = -1;
+                cmgwIndex = SmsManager.getDefault().copyMessageToIccGetIndex(null, smsPdu, status);
+                Log.d(TAG, "insertSmsToCard: cmgwIndex = " + cmgwIndex);
+                if (cmgwIndex < 0)
+                {
+                    return null;
+                }
+
+                ByteArrayOutputStream bo = new ByteArrayOutputStream(smsPdu.length + smscPdu.length);
+                bo.write(smscPdu, 0, smscPdu.length);
+                bo.write(smsPdu, 0, smsPdu.length);
+
+                modValues.remove(Sms.READ);
+                modValues.put(STATUS_ON_ICC, status);
+                insertMessageToIccDatabase(cmgwIndex, modValues, subID);
+                    
+                if ((validIccSmsCount + 1) == iccSmsCountAll)
+                {
+                    return Uri.parse("content://sms/sim/full/success");
+                }
+                else
+                {
+                    return Uri.parse("content://sms/sim");
+                }
+
+                }
+                catch (NumberFormatException exception)
+                {
+                    throw new IllegalArgumentException(
+                    "Bad SMS SIM ID: ");
+                }
+                finally
+                {
+                    ContentResolver cr = getContext().getContentResolver();
+                    cr.notifyChange(iccUri, null);
+            }
+            */
+            return null;
+    }    
+
+    private byte[] formatDateToPduGSM(Time then)
+    {
+        byte tArr[];
+        tArr = new byte[7];
+
+        tArr[0] = (byte)((then.year > 2000)?(then.year - 2000):(then.year - 1900));
+        tArr[1] = (byte)(then.month + 1);
+        tArr[2] = (byte)then.monthDay;
+        tArr[3] = (byte)then.hour;
+        tArr[4] = (byte)then.minute;
+        tArr[5] = (byte)then.second;
+        tArr[6] = (byte)0x00;
+        for (int i = 0; i < 7; i++)
+        {
+            tArr[i] = (byte) ((((tArr[i]/10)%10) & 0x0F)
+                              | (((tArr[i]%10) & 0x0F)<<4));
+        }
+
+
+        return tArr;
+    }    
+
+    //return 0x0000 if sms center is null
+    private byte[] getSmsCenterZero()
+    {
+        byte tArr[];
+        tArr = new byte[1];
+        tArr[0] = (byte)0x00;
+        return tArr;
+    }
+
+    private int getValidSmsCount(int subscription)
+    {
+        int msgCount = 0;
+        String unionQuery = "select count(_id) AS count, 1 AS _id "
+            + "from " + TABLE_ICC_SMS
+            + " where sub_id = " + subscription;
+
+        Cursor c = mOpenHelper.getReadableDatabase().rawQuery(unionQuery, new String[0]);
+
+        if (c == null)
+        {
+            return msgCount;
+        }
+        if (c.moveToFirst())
+        {
+            msgCount = c.getInt(0);
+            c.close();
+            return msgCount;
+        }
+        c.close();
+        return msgCount;
+    }
+    
     @Override
     public int delete(Uri url, String where, String[] whereArgs) {
         int count;
@@ -586,11 +1045,20 @@ public class SmsProvider extends ContentProvider {
                 count = db.delete("sr_pending", where, whereArgs);
                 break;
 
-            case SMS_ICC:
+            case SMS_ICC: {
                 String messageIndexString = url.getPathSegments().get(1);
-
                 return deleteMessageFromIcc(messageIndexString);
+                }
 
+            case SMS_ICC1: {
+                String messageIndexString = url.getPathSegments().get(1);
+                return deleteMessageFromIcc(messageIndexString, SUB1);
+            }
+
+            case SMS_ICC2: {
+                String messageIndexString = url.getPathSegments().get(1);
+                return deleteMessageFromIcc(messageIndexString, SUB2);
+            }
             default:
                 throw new IllegalArgumentException("Unknown URL");
         }
@@ -606,20 +1074,66 @@ public class SmsProvider extends ContentProvider {
      * successful.
      */
     private int deleteMessageFromIcc(String messageIndexString) {
-        SmsManager smsManager = SmsManager.getDefault();
+        return deleteMessageFromIcc(messageIndexString, MSimSmsManager.getDefault().getPreferredSmsSubscription(), ICC_URI);
+    }
 
+     /**
+     * Delete the message at index from ICC with subscription.  Return true iff
+     * successful.
+     */
+    private int deleteMessageFromIcc(String messageIndexString, int subscription) {
+        return deleteMessageFromIcc(messageIndexString, subscription, getIccUri(subscription));
+    }
+
+    /**
+     * Delete the message at index from ICC.  Return true if
+     * successful.
+     */
+    private int deleteMessageFromIcc(String messageIndexString, int subscription, Uri iccUri) {
         try {
-            return smsManager.deleteMessageFromIcc(
-                    Integer.parseInt(messageIndexString))
-                    ? 1 : 0;
+            boolean success = false;
+            if (TelephonyManager.getDefault().isMultiSimEnabled()) {
+                MSimSmsManager smsManager = MSimSmsManager.getDefault();
+                success = smsManager.deleteMessageFromIcc(
+                        Integer.parseInt(messageIndexString), subscription);
+
+            } else {
+                SmsManager smsManager = SmsManager.getDefault();
+                success = smsManager.deleteMessageFromIcc(
+                        Integer.parseInt(messageIndexString));
+            }
+
+            if (success)
+            {
+                deleteMessageFromIccDatabase(messageIndexString, subscription);
+                return 1;
+            }
+            else
+            {
+                return 0;                
+            }
+
         } catch (NumberFormatException exception) {
             throw new IllegalArgumentException(
                     "Bad SMS ICC ID: " + messageIndexString);
         } finally {
             ContentResolver cr = getContext().getContentResolver();
 
-            cr.notifyChange(ICC_URI, null);
+            cr.notifyChange(iccUri, null);
         }
+    }
+
+    /**
+     * Delete the message at index from ICC table.  Return true if
+     * successful.
+     */
+    private int deleteMessageFromIccDatabase(String messageIndexString, int subscription)
+    {
+        String table = TABLE_ICC_SMS;
+        String where = "index_on_icc = " + messageIndexString + " AND sub_id = " + subscription;
+
+        SQLiteDatabase db = mOpenHelper.getWritableDatabase();
+        return db.delete(table, where, null);
     }
 
     @Override
@@ -715,6 +1229,9 @@ public class SmsProvider extends ContentProvider {
             new HashMap<String, String>();
     private static final String[] sIDProjection = new String[] { "_id" };
 
+    private static final int SUB1 = 0;
+    private static final int SUB2 = 1;
+
     private static final int SMS_ALL = 0;
     private static final int SMS_ALL_ID = 1;
     private static final int SMS_INBOX = 2;
@@ -742,6 +1259,10 @@ public class SmsProvider extends ContentProvider {
     private static final int SMS_UNDELIVERED = 27;
     private static final int SMS_INBOX_SUB1 = 28;
     private static final int SMS_INBOX_SUB2 = 29;
+    private static final int SMS_ALL_ICC1 = 30;
+    private static final int SMS_ICC1 = 31;
+    private static final int SMS_ALL_ICC2 = 32;
+    private static final int SMS_ICC2 = 33;
 
     private static final UriMatcher sURLMatcher =
             new UriMatcher(UriMatcher.NO_MATCH);
@@ -775,6 +1296,15 @@ public class SmsProvider extends ContentProvider {
         //we keep these for not breaking old applications
         sURLMatcher.addURI("sms", "sim", SMS_ALL_ICC);
         sURLMatcher.addURI("sms", "sim/#", SMS_ICC);
+        //URLs for the sms on sim card1 and sim card2
+        sURLMatcher.addURI("sms", "icc1", SMS_ALL_ICC1);
+        sURLMatcher.addURI("sms", "icc1/#", SMS_ICC1);
+        sURLMatcher.addURI("sms", "sim1", SMS_ALL_ICC1);
+        sURLMatcher.addURI("sms", "sim1/#", SMS_ICC1);
+        sURLMatcher.addURI("sms", "icc2", SMS_ALL_ICC2);
+        sURLMatcher.addURI("sms", "icc2/#", SMS_ICC2);
+        sURLMatcher.addURI("sms", "sim2", SMS_ALL_ICC2);
+        sURLMatcher.addURI("sms", "sim2/#", SMS_ICC2);
         //URLs for the sms belongs to sub1 and sub2
         sURLMatcher.addURI("sms", "inbox/sub1", SMS_INBOX_SUB1);
         sURLMatcher.addURI("sms", "inbox/sub2", SMS_INBOX_SUB2);
