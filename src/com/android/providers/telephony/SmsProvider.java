@@ -339,7 +339,7 @@ public class SmsProvider extends ContentProvider {
      * Return a Cursor listing all the messages stored on the ICC.
      */
     private Cursor getAllMessagesFromIcc() {
-        return getAllMessagesFromIcc(MSimSmsManager.getDefault().getPreferredSmsSubscription(), ICC_URI);
+        return getAllMessagesFromIcc(SUB_INVALID, ICC_URI);
     }
 
     /**
@@ -347,7 +347,7 @@ public class SmsProvider extends ContentProvider {
      */
     private Cursor getSingleMessageFromIcc(String messageIndexString) {
         return getSingleMessageFromIcc(messageIndexString,
-                    MSimSmsManager.getDefault().getPreferredSmsSubscription(), ICC_URI);
+                    SUB_INVALID, ICC_URI);
     }
 
     /**
@@ -397,31 +397,39 @@ public class SmsProvider extends ContentProvider {
             {
                 MSimSmsManager smsManager = MSimSmsManager.getDefault();
                 messages = smsManager.getAllMessagesFromIcc(subscription);
-                if(subscription == SUB1)
+                if(messages.size() != 0)
                 {
-                    mHasReadIcc1 = true;
+                    if(subscription == SUB1)
+                    {
+                        mHasReadIcc1 = true;
+                    }
+                    else if(subscription == SUB2)
+                    {
+                        mHasReadIcc2 = true;
+                    }
                 }
-                else if(subscription == SUB2)
-                {
-                    mHasReadIcc2 = true;
-                }
+
             }
         } else {
             if(!mHasReadIcc)
             {
                 messages = SmsManager.getAllMessagesFromIcc();
-                mHasReadIcc = true;
+                if(messages.size() != 0)
+                {
+                    mHasReadIcc = true;
+                }                   
+
             }
         }
 
         if(messages != null)
         {
             final int count = messages.size();
-            MatrixCursor cursor = new MatrixCursor(ICC_COLUMNS, count);
+            //MatrixCursor cursor = new MatrixCursor(ICC_COLUMNS, count);
             for (int i = 0; i < count; i++) {
                 SmsMessage message = messages.get(i);
                 if (message != null) {
-                    cursor.addRow(convertIccToSms(message, i, subscription));
+                    //cursor.addRow(convertIccToSms(message, i, subscription));
                     insertSmsMessageToIccDatabase(message, subscription);
                 }
             }
@@ -432,7 +440,12 @@ public class SmsProvider extends ContentProvider {
 
     private Cursor querySmsOnIccDatabase(int subscription, Uri iccUri)
     {
-        String selectionStr = "sub_id = " + subscription;
+        String selectionStr = null;
+        if(TelephonyManager.getDefault().isMultiSimEnabled())
+        {
+            selectionStr = "sub_id = " + subscription;
+        }
+
         SQLiteDatabase db = mOpenHelper.getReadableDatabase();
         Cursor ret = db.query(TABLE_ICC_SMS, null, selectionStr, null,
                               null, null, Sms.DEFAULT_SORT_ORDER);
@@ -456,12 +469,12 @@ public class SmsProvider extends ContentProvider {
         }
         else if (status == STATUS_ON_SIM_SENT)
         {
-            //address = smsMessage.getRecipientddress();
+            address = smsMessage.getRecipientddress();
             mailboxId = TextBasedSmsColumns.MESSAGE_TYPE_SENT;
         }
         else
         {
-            //address = smsMessage.getRecipientddress();
+            address = smsMessage.getRecipientddress();
             mailboxId = TextBasedSmsColumns.MESSAGE_TYPE_DRAFT;
         }
 
@@ -470,7 +483,7 @@ public class SmsProvider extends ContentProvider {
         values.put("message_class", String.valueOf(smsMessage.getMessageClass()));
         values.put(Sms.BODY, smsMessage.getDisplayMessageBody());
         values.put(Sms.DATE, smsMessage.getTimestampMillis()== 0 ? new Long(System.currentTimeMillis()): smsMessage.getTimestampMillis());
-        values.put(Sms.STATUS, Sms.STATUS_NONE);
+        values.put(Sms.STATUS, status);
         values.put("is_status_report", -1);        
         values.put("transport_type", "sms");
         values.put(Sms.TYPE, mailboxId);
@@ -493,7 +506,7 @@ public class SmsProvider extends ContentProvider {
         String table = TABLE_ICC_SMS;
         long rowID;
         
-        values.put(Sms.SUB_ID, subscription);
+        values.put(Sms.SUB_ID, subscription);  // -1 for SUB_INVALID , 0 for SUB1, 1 for SUB2
         values.put("index_on_icc", index);
 
         SQLiteDatabase db = mOpenHelper.getWritableDatabase();
@@ -510,6 +523,10 @@ public class SmsProvider extends ContentProvider {
             else if (subscription == SUB2)
             {
                 cr.notifyChange(ICC2_URI, null);
+            }
+            else
+            {
+                cr.notifyChange(ICC_URI, null);
             }
 
             return uri;
@@ -637,7 +654,7 @@ public class SmsProvider extends ContentProvider {
                 break;
 
             case SMS_ALL_ICC:
-                return insertSmsToCard(initialValues);  
+                return insertSmsToCard(initialValues, SUB_INVALID);  
 
             case SMS_ALL_ICC1:
                 return insertSmsToCard(initialValues, SUB1);
@@ -773,12 +790,6 @@ public class SmsProvider extends ContentProvider {
         return null;
     }
 
-
-    private Uri insertSmsToCard(ContentValues values)
-    { 
-        return insertSmsToCard(values, MSimSmsManager.getDefault().getPreferredSmsSubscription());
-    }
-
     /**
       * Insert the message at index from SIM.  Return the Uri.
       */
@@ -812,8 +823,6 @@ public class SmsProvider extends ContentProvider {
 
         int validIccSmsCount = getValidSmsCount(subscription);
         int iccSmsCountAll = -1;
-        Log.d(TAG, "insertSmsToCard: validIccSmsCount = "
-            +validIccSmsCount + ", iccSmsCountAll = " + iccSmsCountAll);
 
         if(TelephonyManager.getDefault().isMultiSimEnabled())
         {
@@ -824,122 +833,130 @@ public class SmsProvider extends ContentProvider {
             iccSmsCountAll = SmsManager.getDefault().getSmsCapCountOnIcc();
         }
 
+        Log.d(TAG, "insertSmsToCard: validIccSmsCount = "
+            +validIccSmsCount + ", iccSmsCountAll = " + iccSmsCountAll);
+        
         if (iccSmsCountAll <= 0)
         {
             return null;
         }
-        if (validIccSmsCount == iccSmsCountAll)
+        if (validIccSmsCount >= iccSmsCountAll)
         {
             return Uri.parse("content://sms/sim/full/failure");
         }
-        String body = values.getAsString(Sms.BODY);
         Long date = values.getAsLong(Sms.DATE);
+        String body = values.getAsString(Sms.BODY);        
         int type = values.getAsInteger(Sms.TYPE);
         String address = values.getAsString(Sms.ADDRESS);
         int read = values.getAsInteger(Sms.READ);
-        /*
-            try
+        int subId = values.getAsInteger(Sms.SUB_ID);  // -1 for SUB_INVALID , 0 for SUB1, 1 for SUB2 
+        
+        try
+        {
+            byte[] smsPdu = null;
+            byte[] smscPdu = null;
+            int status = STATUS_ON_SIM_READ;
+            if (type == Sms.MESSAGE_TYPE_INBOX)
             {
-                byte[] smsPdu = null;
-                byte[] smscPdu = null;
-                int status = STATUS_ON_SIM_READ;
-                if (type == Sms.MESSAGE_TYPE_INBOX)
+                Time then = new Time();
+                then.set(date);
+                byte[] datepdu = formatDateToPduGSM(then);
+
+                if (read == 0)
                 {
-                    Time then = new Time();
-                    then.set(date);
-                    byte[] datepdu = formatDateToPduGSM(then);
-
-                    if (read == 0)
-                    {
-                        status = STATUS_ON_SIM_UNREAD;
-                    }
-
-                    //SmsMessage.DeliveryPdu pdus = SmsMessage.getDeliveryPdu(null, 
-                   //address, body, false, null, datepdu);
-                    SmsMessage.DeliveryPdu pdus = null;
-
-                    if (pdus == null)
-                    {
-                        return null;
-                    }
-                    smsPdu = pdus.encodedMessage;
-                    smscPdu = pdus.encodedScAddress;
-                }
-                else if (type == Sms.MESSAGE_TYPE_SENT)
-                {
-                    Time then = new Time();
-                    then.set(date);
-                    byte[] datepdu = formatDateToPduGSM(then);
-
-                    //SmsMessage.SubmitPdu pdus = SmsMessage.getSubmitPdu(null, 
-                    //address, body, false, datepdu);
-                    SmsMessage.SubmitPdu pdus = SmsMessage.getSubmitPdu(null, 
-                            address, body, false);
-                    if (pdus == null)
-                    {
-                        return null;
-                    }
-                    smsPdu = pdus.encodedMessage;
-                    smscPdu = pdus.encodedScAddress;
-                    status = STATUS_ON_SIM_SENT;
-                }
-                else
-                {
-                    SmsMessage.SubmitPdu pdus = SmsMessage.getSubmitPdu(null, 
-                        address, body, false);
-
-                    if (pdus == null)
-                    {
-                        return null;
-                    }
-                    smsPdu = pdus.encodedMessage;
-                    smscPdu = pdus.encodedScAddress;
-                    status = STATUS_ON_SIM_UNSENT;
+                    status = STATUS_ON_SIM_UNREAD;
                 }
 
-                if (smscPdu == null)
-                {
-                    smscPdu = getSmsCenterZero();
-                }
+                SmsMessage.DeliveryPdu pdus = SmsMessage.getDeliveryPdu(null, 
+                    address, body, false, null, datepdu, subId);
 
-                int cmgwIndex = -1;
-                cmgwIndex = SmsManager.getDefault().copyMessageToIccGetIndex(null, smsPdu, status);
-                Log.d(TAG, "insertSmsToCard: cmgwIndex = " + cmgwIndex);
-                if (cmgwIndex < 0)
+                if (pdus == null)
                 {
                     return null;
                 }
-
-                ByteArrayOutputStream bo = new ByteArrayOutputStream(smsPdu.length + smscPdu.length);
-                bo.write(smscPdu, 0, smscPdu.length);
-                bo.write(smsPdu, 0, smsPdu.length);
-
-                modValues.remove(Sms.READ);
-                modValues.put(STATUS_ON_ICC, status);
-                insertMessageToIccDatabase(cmgwIndex, modValues, subID);
-                    
-                if ((validIccSmsCount + 1) == iccSmsCountAll)
-                {
-                    return Uri.parse("content://sms/sim/full/success");
-                }
-                else
-                {
-                    return Uri.parse("content://sms/sim");
-                }
-
-                }
-                catch (NumberFormatException exception)
-                {
-                    throw new IllegalArgumentException(
-                    "Bad SMS SIM ID: ");
-                }
-                finally
-                {
-                    ContentResolver cr = getContext().getContentResolver();
-                    cr.notifyChange(iccUri, null);
+                smsPdu = pdus.encodedMessage;
+                smscPdu = pdus.encodedScAddress;
             }
-            */
-            return null;
+            else if (type == Sms.MESSAGE_TYPE_SENT)
+            {
+                Time then = new Time();
+                then.set(date);
+                byte[] datepdu = formatDateToPduGSM(then);
+
+                SmsMessage.SubmitPdu pdus = SmsMessage.getSubmitPdu(null, 
+                    address, body, false, datepdu, subId);
+                
+                if (pdus == null)
+                {
+                    return null;
+                }
+                smsPdu = pdus.encodedMessage;
+                smscPdu = pdus.encodedScAddress;
+                status = STATUS_ON_SIM_SENT;
+            }
+            else
+            {
+                SmsMessage.SubmitPdu pdus = SmsMessage.getSubmitPdu(null, 
+                    address, body, false, null, subId);
+
+                if (pdus == null)
+                {
+                    return null;
+                }
+                smsPdu = pdus.encodedMessage;
+                smscPdu = pdus.encodedScAddress;
+                status = STATUS_ON_SIM_UNSENT;
+            }
+
+            if (smscPdu == null)
+            {
+                smscPdu = getSmsCenterZero();
+            }
+
+            int cmgwIndex = -1;
+            if(TelephonyManager.getDefault().isMultiSimEnabled())
+            {
+                cmgwIndex = MSimSmsManager.getDefault().copyMessageToIccGetIndex(null, smsPdu, status, subId);
+            }
+            else
+            {
+                cmgwIndex = SmsManager.getDefault().copyMessageToIccGetIndex(null, smsPdu, status);
+            }
+
+            Log.d(TAG, "insertSmsToCard: cmgwIndex = " + cmgwIndex);
+            if (cmgwIndex < 0)
+            {
+                return null;
+            }
+
+            ByteArrayOutputStream bo = new ByteArrayOutputStream(smsPdu.length + smscPdu.length);
+            bo.write(smscPdu, 0, smscPdu.length);
+            bo.write(smsPdu, 0, smsPdu.length);
+
+            modValues.remove(Sms.READ);
+            modValues.put("status_on_icc", status);
+            insertMessageToIccDatabase(cmgwIndex, modValues, subId);
+                
+            if ((validIccSmsCount + 1) == iccSmsCountAll)
+            {
+                return Uri.parse("content://sms/sim/full/success");
+            }
+            else
+            {
+                return Uri.parse("content://sms/sim");
+            }
+
+            }
+            catch (NumberFormatException exception)
+            {
+                throw new IllegalArgumentException(
+                "Bad SMS SIM ID: ");
+            }
+            finally
+            {
+                ContentResolver cr = getContext().getContentResolver();
+                cr.notifyChange(iccUri, null);
+        }
     }    
 
     private byte[] formatDateToPduGSM(Time then)
@@ -960,7 +977,6 @@ public class SmsProvider extends ContentProvider {
                               | (((tArr[i]%10) & 0x0F)<<4));
         }
 
-
         return tArr;
     }    
 
@@ -977,8 +993,12 @@ public class SmsProvider extends ContentProvider {
     {
         int msgCount = 0;
         String unionQuery = "select count(_id) AS count, 1 AS _id "
-            + "from " + TABLE_ICC_SMS
-            + " where sub_id = " + subscription;
+            + "from " + TABLE_ICC_SMS;
+        
+        if(TelephonyManager.getDefault().isMultiSimEnabled())
+        {
+            unionQuery += " where sub_id = " + subscription;
+        }
 
         Cursor c = mOpenHelper.getReadableDatabase().rawQuery(unionQuery, new String[0]);
 
@@ -1048,7 +1068,7 @@ public class SmsProvider extends ContentProvider {
             case SMS_ICC: {
                 String messageIndexString = url.getPathSegments().get(1);
                 return deleteMessageFromIcc(messageIndexString);
-                }
+            }
 
             case SMS_ICC1: {
                 String messageIndexString = url.getPathSegments().get(1);
@@ -1059,6 +1079,19 @@ public class SmsProvider extends ContentProvider {
                 String messageIndexString = url.getPathSegments().get(1);
                 return deleteMessageFromIcc(messageIndexString, SUB2);
             }
+
+            case SMS_ALL_ICC: {
+                return deleteAllFromIccDatabase(SUB_INVALID);
+            }
+
+            case SMS_ALL_ICC1: {
+                return deleteAllFromIccDatabase(SUB1);
+            }
+
+            case SMS_ALL_ICC2: {
+                return deleteAllFromIccDatabase(SUB2);
+            }
+            
             default:
                 throw new IllegalArgumentException("Unknown URL");
         }
@@ -1074,7 +1107,7 @@ public class SmsProvider extends ContentProvider {
      * successful.
      */
     private int deleteMessageFromIcc(String messageIndexString) {
-        return deleteMessageFromIcc(messageIndexString, MSimSmsManager.getDefault().getPreferredSmsSubscription(), ICC_URI);
+        return deleteMessageFromIcc(messageIndexString, SUB_INVALID, ICC_URI);
     }
 
      /**
@@ -1130,12 +1163,45 @@ public class SmsProvider extends ContentProvider {
     private int deleteMessageFromIccDatabase(String messageIndexString, int subscription)
     {
         String table = TABLE_ICC_SMS;
-        String where = "index_on_icc = " + messageIndexString + " AND sub_id = " + subscription;
+        String where = "index_on_icc = " + messageIndexString;
+
+        if(TelephonyManager.getDefault().isMultiSimEnabled())
+        {
+            where += " AND sub_id = " + subscription;
+        }
 
         SQLiteDatabase db = mOpenHelper.getWritableDatabase();
         return db.delete(table, where, null);
     }
 
+    private int deleteAllFromIccDatabase(int subscription)
+    {
+        String table = TABLE_ICC_SMS;
+        SQLiteDatabase db = mOpenHelper.getWritableDatabase();
+        String where = "sub_id = " + subscription;
+        if (subscription == SUB_INVALID)
+        {
+            where = null;
+        }
+        Log.d(TAG, "wangshuang-->deleteAllFromIccDatabase : subscription = "+ subscription);
+        int result = db.delete(table, where, null);
+        
+        ContentResolver cr = getContext().getContentResolver();
+        if (SUB2 == subscription)
+        {       
+            cr.notifyChange(ICC2_URI, null);
+        }
+        else if (SUB1 == subscription)
+        {        
+            cr.notifyChange(ICC1_URI, null);
+        }
+        else
+        {                    
+            cr.notifyChange(ICC_URI, null);
+        }     
+        return result;
+    }
+    
     @Override
     public int update(Uri url, ContentValues values, String where, String[] whereArgs) {
         int count = 0;
@@ -1229,8 +1295,9 @@ public class SmsProvider extends ContentProvider {
             new HashMap<String, String>();
     private static final String[] sIDProjection = new String[] { "_id" };
 
-    private static final int SUB1 = 0;
-    private static final int SUB2 = 1;
+    private static final int SUB_INVALID = -1;  //  for single card product
+    private static final int SUB1 = 0;  // for DSDS product of slot one
+    private static final int SUB2 = 1;  // for DSDS product of slot two
 
     private static final int SMS_ALL = 0;
     private static final int SMS_ALL_ID = 1;
