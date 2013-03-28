@@ -148,7 +148,8 @@ public class TelephonyProvider extends ContentProvider
                     "profile_type TEXT," +
                     "roaming_protocol TEXT," +
                     "carrier_enabled BOOLEAN," +
-                    "bearer INTEGER);");
+                    "bearer INTEGER," +
+                    "read_only BOOLEAN DEFAULT 0);");
 
             initDatabase(db);
         }
@@ -315,6 +316,12 @@ public class TelephonyProvider extends ContentProvider
             if (bearer != null) {
                 map.put(Telephony.Carriers.BEARER, Integer.parseInt(bearer));
             }
+
+            String readOnly = parser.getAttributeValue(null, "read_only");
+            if (readOnly != null) {
+                map.put(Telephony.Carriers.READ_ONLY, Boolean.parseBoolean(readOnly));
+            }
+
             return map;
         }
 
@@ -362,6 +369,11 @@ public class TelephonyProvider extends ContentProvider
             if (row.containsKey(Telephony.Carriers.BEARER) == false) {
                 row.put(Telephony.Carriers.BEARER, 0);
             }
+
+            if (row.containsKey(Telephony.Carriers.READ_ONLY) == false) {
+                row.put(Telephony.Carriers.READ_ONLY, false);
+            }
+
             db.insert(CARRIERS_TABLE, null, row);
         }
     }
@@ -559,6 +571,9 @@ public class TelephonyProvider extends ContentProvider
                 }
                 if (!values.containsKey(Telephony.Carriers.BEARER)) {
                     values.put(Telephony.Carriers.BEARER, 0);
+                }
+                if (!values.containsKey(Telephony.Carriers.READ_ONLY)) {
+                    values.put(Telephony.Carriers.READ_ONLY, false);
                 }
 
                 long rowID = db.insert(CARRIERS_TABLE, null, values);
