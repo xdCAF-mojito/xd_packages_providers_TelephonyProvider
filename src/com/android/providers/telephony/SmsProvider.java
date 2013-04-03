@@ -1206,6 +1206,24 @@ public class SmsProvider extends ContentProvider {
         }     
         return result;
     }
+
+    
+    private int updateMessageOnIccDatabase(int subscription)
+    {
+        Log.d(TAG, "updateMessageOnIccDatabase");
+        ContentValues values = new ContentValues(1);
+        values.put("status_on_icc", STATUS_ON_SIM_READ);
+        String table = TABLE_ICC_SMS;
+        SQLiteDatabase db = mOpenHelper.getWritableDatabase();
+        String where = "sub_id = " + subscription;
+
+        int count = db.update(table, values, where, null);
+        
+        ContentResolver cr = getContext().getContentResolver();
+        cr.notifyChange(getIccUri(subscription), null);
+ 
+        return count;
+    }
     
     @Override
     public int update(Uri url, ContentValues values, String where, String[] whereArgs) {
@@ -1262,7 +1280,16 @@ public class SmsProvider extends ContentProvider {
             case SMS_STATUS_ID:
                 extraWhere = "_id=" + url.getPathSegments().get(1);
                 break;
-
+                
+            case SMS_ALL_ICC:
+                return updateMessageOnIccDatabase(SUB_INVALID);
+                
+            case SMS_ALL_ICC1:
+                return updateMessageOnIccDatabase(SUB1);
+                
+            case SMS_ALL_ICC2:
+                return updateMessageOnIccDatabase(SUB2);
+                
             default:
                 throw new UnsupportedOperationException(
                         "URI " + url + " not supported");
