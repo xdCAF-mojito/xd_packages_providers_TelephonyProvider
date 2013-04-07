@@ -117,7 +117,7 @@ public class SmsProvider extends ContentProvider {
     public Cursor query(Uri url, String[] projectionIn, String selection,
             String[] selectionArgs, String sort) {
         SQLiteQueryBuilder qb = new SQLiteQueryBuilder();
-        if (true || Log.isLoggable(TAG, Log.VERBOSE)) {
+        if (Log.isLoggable(TAG, Log.VERBOSE)) {
             Log.d(TAG, "query : url = " + url);
         }
 
@@ -402,7 +402,7 @@ public class SmsProvider extends ContentProvider {
                 
                 MSimSmsManager smsManager = MSimSmsManager.getDefault();
                 messages = smsManager.getAllMessagesFromIcc(subscription);
-                Log.d(TAG, "getAllMessagesFromIcc : messages.size() ="+messages.size());
+
                 if(messages.size() != 0)
                 {
                     if(subscription == SUB1)
@@ -420,11 +420,11 @@ public class SmsProvider extends ContentProvider {
             if(!mHasReadIcc)
             {
                 messages = SmsManager.getAllMessagesFromIcc();
+                Log.d(TAG, "getAllMessagesFromIcc : messages.size() ="+messages.size());
                 if(messages.size() != 0)
                 {
                     mHasReadIcc = true;
                 }                   
-
             }
         }
 
@@ -516,6 +516,7 @@ public class SmsProvider extends ContentProvider {
 
         SQLiteDatabase db = mOpenHelper.getWritableDatabase();
         rowID = db.insert(table, "body", values);
+        
         if (rowID > 0)
         {
             Uri uri = Uri.parse("content://sms/" + table + "/" + rowID);
@@ -1025,6 +1026,10 @@ public class SmsProvider extends ContentProvider {
     public int delete(Uri url, String where, String[] whereArgs) {
         int count;
         int match = sURLMatcher.match(url);
+        if (Log.isLoggable(TAG, Log.VERBOSE)) {
+            Log.d(TAG, "delete : url = " + url);
+        }
+        
         SQLiteDatabase db = mOpenHelper.getWritableDatabase();
         switch (match) {
             case SMS_ALL:
@@ -1206,6 +1211,23 @@ public class SmsProvider extends ContentProvider {
         }     
         return result;
     }
+
+    
+    private int updateMessageOnIccDatabase(int subID)
+    {
+        ContentValues values = new ContentValues(1);
+        values.put("status_on_icc", STATUS_ON_SIM_READ);
+        String table = TABLE_ICC_SMS;
+        SQLiteDatabase db = mOpenHelper.getWritableDatabase();
+        String where = null;
+        if(TelephonyManager.getDefault().isMultiSimEnabled())
+        {
+            where = "sub_id = " + subID;
+        }
+        
+        int count = db.update(table, values, where, null);
+        return count;
+    }
     
     @Override
     public int update(Uri url, ContentValues values, String where, String[] whereArgs) {
@@ -1262,7 +1284,16 @@ public class SmsProvider extends ContentProvider {
             case SMS_STATUS_ID:
                 extraWhere = "_id=" + url.getPathSegments().get(1);
                 break;
-
+                
+            case SMS_ALL_ICC:
+                return updateMessageOnIccDatabase(SUB_INVALID);
+                
+            case SMS_ALL_ICC1:
+                return updateMessageOnIccDatabase(SUB1);
+                
+            case SMS_ALL_ICC2:
+                return updateMessageOnIccDatabase(SUB2);
+                
             default:
                 throw new UnsupportedOperationException(
                         "URI " + url + " not supported");
