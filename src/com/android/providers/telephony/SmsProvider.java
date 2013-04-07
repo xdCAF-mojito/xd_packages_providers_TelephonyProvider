@@ -1213,19 +1213,20 @@ public class SmsProvider extends ContentProvider {
     }
 
     
-    private int updateMessageOnIccDatabase(int subID)
+    private int updateMessageOnIccDatabase(int subscription)
     {
+        Log.d(TAG, "updateMessageOnIccDatabase");
         ContentValues values = new ContentValues(1);
         values.put("status_on_icc", STATUS_ON_SIM_READ);
         String table = TABLE_ICC_SMS;
         SQLiteDatabase db = mOpenHelper.getWritableDatabase();
-        String where = null;
-        if(TelephonyManager.getDefault().isMultiSimEnabled())
-        {
-            where = "sub_id = " + subID;
-        }
-        
+        String where = "sub_id = " + subscription;
+
         int count = db.update(table, values, where, null);
+        
+        ContentResolver cr = getContext().getContentResolver();
+        cr.notifyChange(getIccUri(subscription), null);
+ 
         return count;
     }
     
