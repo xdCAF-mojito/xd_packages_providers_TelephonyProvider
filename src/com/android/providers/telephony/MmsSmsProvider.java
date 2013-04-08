@@ -95,6 +95,7 @@ public class MmsSmsProvider extends ContentProvider {
     private static final int URI_MESSAGE_ID_TO_THREAD              = 18;
     private static final int URI_MAILBOX_MESSAGES                  = 19;
     private static final int URI_SEARCH_MESSAGE                    = 20;
+    private static final int URI_MAILBOXS                          = 21;
 
     public static final int SEARCH_MODE_CONTENT = 0;
     public static final int SEARCH_MODE_NAME    = 1;
@@ -236,6 +237,7 @@ public class MmsSmsProvider extends ContentProvider {
 
         //"#" is the mailbox name id, such as inbox=1, sent=2, draft = 3 , outbox = 4
         URI_MATCHER.addURI(AUTHORITY, "mailbox/#", URI_MAILBOX_MESSAGES);
+        URI_MATCHER.addURI(AUTHORITY, "mailboxs", URI_MAILBOXS);
         // URI for search messages in mailbox mode with obtained search mode such as content, number and name
         URI_MATCHER.addURI(AUTHORITY, "search-message", URI_SEARCH_MESSAGE);  
         
@@ -335,6 +337,10 @@ public class MmsSmsProvider extends ContentProvider {
                         uri.getPathSegments().get(1), projection, selection,
                         selectionArgs, sortOrder, false);
                 break; 
+            case URI_MAILBOXS:            
+                cursor = getMailboxs(projection, selection,
+                                selectionArgs, sortOrder);
+                break;  
             case URI_CONVERSATIONS_RECIPIENTS:
                 cursor = getConversationById(
                         uri.getPathSegments().get(1), projection, selection,
@@ -1209,6 +1215,22 @@ public class MmsSmsProvider extends ContentProvider {
     }
 
     /**
+     * Use this query:
+     *
+     * select msgbox.name, msgbox.boxtype, count(idd) as total, sum(ifnull(read,0)) as readed, 
+     * count(idd) - sum(ifnull(read,0)) as noread from msgbox left join(
+     * select _id AS idd, type, read from sms union select _id AS idd, msg_box AS type, 
+     * read from pdu  )on msgbox.boxtype = type group by type order by boxtype
+     */    
+    private Cursor getMailboxs(String[] projection, String selection,
+            String[] selectionArgs, String sortOrder)
+    {
+        String unionQuery = buildMailboxsQuery(projection, null, selectionArgs, sortOrder);
+        
+        return mOpenHelper.getReadableDatabase().rawQuery(unionQuery, EMPTY_STRING_ARRAY);
+    }
+    
+    /**
      * Return the union of MMS and SMS messages in one mailbox.
      */
     private Cursor getMailboxMessages(
@@ -1231,6 +1253,30 @@ public class MmsSmsProvider extends ContentProvider {
         return mOpenHelper.getReadableDatabase().rawQuery(unionQuery, EMPTY_STRING_ARRAY);
     }
 
+    private static String buildMailboxsQuery(String[] projection, 
+            String selection, String[] selectionArgs, String sortOrder)
+    {
+        String query = 
+            "select boxname, messeagebox._id AS _id ,messeagebox.boxtype, "
+            + "count(idd) as total, sum(ifnull(read,0)) as readed, "
+            + "count(idd) - sum(ifnull(read,0)) as noread from " 
+            + "(select 0 AS _id, \"Inbox\" AS boxname, 1 AS boxtype " 
+            + "union select 1 AS _id, \"Sent\" AS boxname, 2 AS boxtype "
+            + "union select 3 AS _id, \"Outbox\" AS boxname, 4 AS boxtype "
+            + "union select 4 AS _id, \"Outbox\" AS boxname, 5 AS boxtype "
+            + "union select 5 AS _id, \"Outbox\" AS boxname, 6 AS boxtype "
+            + "union select 6 AS _id, \"Drafts\" AS boxname, 3 AS boxtype "
+            + ")messeagebox "
+            + "left join " 
+            + "(select _id AS idd, type, read, 1 AS hs_msg_type from sms where thread_id NOTNULL "
+            + "union " 
+            + "select _id AS idd, msg_box AS type, read, 2 AS hs_msg_type from pdu where thread_id NOTNULL)"
+            + "on messeagebox.boxtype = type " 
+            + "group by boxname order by _id";
+        
+        return query;
+    }
+    
     private static String buildMailboxMsgQuery(String mailboxId, String[] projection,
             String selection, String[] selectionArgs, String sortOrder,boolean read) {
         String[] mmsProjection = createMmsMailboxProjection(projection);
