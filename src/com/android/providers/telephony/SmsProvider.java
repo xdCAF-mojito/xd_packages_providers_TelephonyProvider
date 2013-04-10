@@ -117,7 +117,7 @@ public class SmsProvider extends ContentProvider {
     public Cursor query(Uri url, String[] projectionIn, String selection,
             String[] selectionArgs, String sort) {
         SQLiteQueryBuilder qb = new SQLiteQueryBuilder();
-        if (Log.isLoggable(TAG, Log.VERBOSE)) {
+        if (true || Log.isLoggable(TAG, Log.VERBOSE)) {
             Log.d(TAG, "query : url = " + url);
         }
 
@@ -392,16 +392,22 @@ public class SmsProvider extends ContentProvider {
     /**
      * Return a Cursor listing all the messages stored on the ICC.
      */
-    private Cursor getAllMessagesFromIcc(int subscription, Uri iccUri) {
-        
+    private Cursor getAllMessagesFromIcc(int subscription, Uri iccUri) {       
         ArrayList<SmsMessage> messages = null;
         if (TelephonyManager.getDefault().isMultiSimEnabled()) {
+            if (true || Log.isLoggable(TAG, Log.VERBOSE)) {
+                Log.d(TAG, "getAllMessagesFromIcc : mHasReadIcc1 = " 
+                    + mHasReadIcc1 + ",mHasReadIcc2 = " + mHasReadIcc2); 
+            }
+            
             if((subscription == SUB1 && !mHasReadIcc1)
                 || (subscription == SUB2 && !mHasReadIcc2))
             {
                 
                 MSimSmsManager smsManager = MSimSmsManager.getDefault();
                 messages = smsManager.getAllMessagesFromIcc(subscription);
+                Log.d(TAG, "getAllMessagesFromIcc : messages.size() = " 
+                    + messages.size() + ",subscription = " + subscription);
 
                 if(messages.size() != 0)
                 {
@@ -421,6 +427,7 @@ public class SmsProvider extends ContentProvider {
             {
                 messages = SmsManager.getAllMessagesFromIcc();
                 Log.d(TAG, "getAllMessagesFromIcc : messages.size() ="+messages.size());
+
                 if(messages.size() != 0)
                 {
                     mHasReadIcc = true;
@@ -446,6 +453,8 @@ public class SmsProvider extends ContentProvider {
 
     private Cursor querySmsOnIccDatabase(int subscription, Uri iccUri)
     {
+        Log.d(TAG, "querySmsOnIccDatabase : subscription = " 
+            + subscription + ",iccUri=" + iccUri.toString());
         String selectionStr = null;
         if(TelephonyManager.getDefault().isMultiSimEnabled())
         {
@@ -660,13 +669,27 @@ public class SmsProvider extends ContentProvider {
                 break;
 
             case SMS_ALL_ICC:
-                return insertSmsToCard(initialValues, SUB_INVALID);  
-
+                return insertSmsToCard(initialValues, SUB_INVALID); 
+                
+            case SMS_ICC:
+                String indexString = url.getPathSegments().get(1);
+                return insertMessageToIccDatabase(Integer.parseInt(indexString),
+                            initialValues, SUB_INVALID);
             case SMS_ALL_ICC1:
                 return insertSmsToCard(initialValues, SUB1);
+                
+            case SMS_ICC1:
+                String indexString1 = url.getPathSegments().get(1);
+                return insertMessageToIccDatabase(Integer.parseInt(indexString1),
+                            initialValues, SUB1);
 
             case SMS_ALL_ICC2:
                 return insertSmsToCard(initialValues, SUB2);
+                
+            case SMS_ICC2:
+                String indexString2 = url.getPathSegments().get(1);
+                return insertMessageToIccDatabase(Integer.parseInt(indexString2),
+                            initialValues, SUB2);
 
             default:
                 Log.e(TAG, "Invalid request: " + url);

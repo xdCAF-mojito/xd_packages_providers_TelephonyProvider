@@ -96,7 +96,9 @@ public class MmsSmsProvider extends ContentProvider {
     private static final int URI_MAILBOX_MESSAGES                  = 19;
     private static final int URI_SEARCH_MESSAGE                    = 20;
     private static final int URI_MAILBOXS                          = 21;
-
+    private static final int URI_MAILBOXS_SMS                      = 22;
+    private static final int URI_MAILBOX_MESSAGES_COUNT            = 23;
+    
     public static final int SEARCH_MODE_CONTENT = 0;
     public static final int SEARCH_MODE_NAME    = 1;
     public static final int SEARCH_MODE_NUMBER  = 2;
@@ -238,6 +240,9 @@ public class MmsSmsProvider extends ContentProvider {
         //"#" is the mailbox name id, such as inbox=1, sent=2, draft = 3 , outbox = 4
         URI_MATCHER.addURI(AUTHORITY, "mailbox/#", URI_MAILBOX_MESSAGES);
         URI_MATCHER.addURI(AUTHORITY, "mailboxs", URI_MAILBOXS);
+        URI_MATCHER.addURI(AUTHORITY, "mailboxs/sms", URI_MAILBOXS_SMS);
+        //URI for obtaining all short message count, add for cmcc test
+        URI_MATCHER.addURI(AUTHORITY, "messagescount", URI_MAILBOX_MESSAGES_COUNT);
         // URI for search messages in mailbox mode with obtained search mode such as content, number and name
         URI_MATCHER.addURI(AUTHORITY, "search-message", URI_SEARCH_MESSAGE);  
         
@@ -308,7 +313,9 @@ public class MmsSmsProvider extends ContentProvider {
             String selection, String[] selectionArgs, String sortOrder) {
         SQLiteDatabase db = mOpenHelper.getReadableDatabase();
         Cursor cursor = null;
-        Log.d(LOG_TAG , "query : uri = "+ uri + ", sURLMatcher.match(url) = "+ URI_MATCHER.match(uri));
+        Log.d(LOG_TAG , "query : uri = "+ uri 
+            + ", sURLMatcher.match(url) = "+ URI_MATCHER.match(uri));
+        
         switch(URI_MATCHER.match(uri)) {
             case URI_COMPLETE_CONVERSATIONS:
                 cursor = getCompleteConversations(projection, selection, sortOrder);
@@ -339,8 +346,16 @@ public class MmsSmsProvider extends ContentProvider {
                 break; 
             case URI_MAILBOXS:            
                 cursor = getMailboxs(projection, selection,
-                                selectionArgs, sortOrder);
+                                selectionArgs, sortOrder, false);
                 break;  
+            case URI_MAILBOXS_SMS: 
+                // query message count with boxtype only in sms table, add for cmcc test
+                cursor = getMailboxs(projection, selection,
+                                selectionArgs, sortOrder, true);
+                break;  
+           case URI_MAILBOX_MESSAGES_COUNT:
+                return getMailboxMessagesCount();
+                
             case URI_CONVERSATIONS_RECIPIENTS:
                 cursor = getConversationById(
                         uri.getPathSegments().get(1), projection, selection,
@@ -1215,6 +1230,19 @@ public class MmsSmsProvider extends ContentProvider {
     }
 
     /**
+    * Return the SMS messages count on phone
+    */
+    private Cursor getMailboxMessagesCount() 
+    {                                     
+        String unionQuery = "select sum(a) AS count, 1 AS _id "
+                              + "from ("
+                              + "select count(_id) as a, 2 AS b from sms"
+                              + ")";
+
+        return mOpenHelper.getReadableDatabase().rawQuery(unionQuery, EMPTY_STRING_ARRAY);
+    }
+
+    /**
      * Use this query:
      *
      * select msgbox.name, msgbox.boxtype, count(idd) as total, sum(ifnull(read,0)) as readed, 
@@ -1223,13 +1251,21 @@ public class MmsSmsProvider extends ContentProvider {
      * read from pdu  )on msgbox.boxtype = type group by type order by boxtype
      */    
     private Cursor getMailboxs(String[] projection, String selection,
-            String[] selectionArgs, String sortOrder)
+            String[] selectionArgs, String sortOrder, boolean onlySms)
     {
-        String unionQuery = buildMailboxsQuery(projection, null, selectionArgs, sortOrder);
+        String unionQuery = null;
+        if(onlySms)
+        {
+            unionQuery = buildMailboxsQueryOfSms(projection, null, selectionArgs, sortOrder);
+        }
+        else
+        {
+            unionQuery = buildMailboxsQuery(projection, null, selectionArgs, sortOrder);
+        }
         
         return mOpenHelper.getReadableDatabase().rawQuery(unionQuery, EMPTY_STRING_ARRAY);
     }
-    
+
     /**
      * Return the union of MMS and SMS messages in one mailbox.
      */
@@ -1271,6 +1307,28 @@ public class MmsSmsProvider extends ContentProvider {
             + "(select _id AS idd, type, read, 1 AS hs_msg_type from sms where thread_id NOTNULL "
             + "union " 
             + "select _id AS idd, msg_box AS type, read, 2 AS hs_msg_type from pdu where thread_id NOTNULL)"
+            + "on messeagebox.boxtype = type " 
+            + "group by boxname order by _id";
+        
+        return query;
+    }
+
+    private static String buildMailboxsQueryOfSms(String[] projection, 
+            String selection, String[] selectionArgs, String sortOrder)
+    {
+        String query = 
+            "select boxname, messeagebox._id AS _id ,messeagebox.boxtype, "
+            + "count(idd) as total, sum(ifnull(read,0)) as readed, "
+            + "count(idd) - sum(ifnull(read,0)) as noread from " 
+            + "(select 0 AS _id, \"Inbox\" AS boxname, 1 AS boxtype " 
+            + "union select 1 AS _id, \"Sent\" AS boxname, 2 AS boxtype "
+            + "union select 3 AS _id, \"Outbox\" AS boxname, 4 AS boxtype "
+            + "union select 4 AS _id, \"Outbox\" AS boxname, 5 AS boxtype "
+            + "union select 5 AS _id, \"Outbox\" AS boxname, 6 AS boxtype "
+            + "union select 6 AS _id, \"Drafts\" AS boxname, 3 AS boxtype "
+            + ")messeagebox "
+            + "left join " 
+            + "(select _id AS idd, type, read, 1 AS hs_msg_type from sms where thread_id NOTNULL)"
             + "on messeagebox.boxtype = type " 
             + "group by boxname order by _id";
         
