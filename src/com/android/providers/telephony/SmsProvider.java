@@ -57,6 +57,7 @@ public class SmsProvider extends ContentProvider {
     private static final Uri ICC_URI = Uri.parse("content://sms/icc");
     private static final Uri ICC1_URI = Uri.parse("content://sms/icc1");
     private static final Uri ICC2_URI = Uri.parse("content://sms/icc2");
+    private static final Uri ICC_SMS_URI = Uri.parse("content://sms/iccsms");
     static final String TABLE_SMS = "sms";
     static final String TABLE_ICC_SMS = "iccsms";
     private static final String TABLE_RAW = "raw";
@@ -259,7 +260,11 @@ public class SmsProvider extends ContentProvider {
                 String messageIndexString = url.getPathSegments().get(1);
                 return getSingleMessageFromIcc(messageIndexString, SUB2);
                 }
-
+            
+            case SMS_ICC_MESSAGE:
+                return getIccSmsOnDatabase(projectionIn, selection,
+                                selectionArgs, sort);
+                
             default:
                 Log.e(TAG, "Invalid request: " + url);
                 return null;
@@ -338,6 +343,19 @@ public class SmsProvider extends ContentProvider {
         }
     }
 
+    
+    /**
+     * Return a Cursor listing messages stored on the ICC by given selection.
+     */
+    private Cursor getIccSmsOnDatabase(String[] projectionIn,
+            String selection, String[] selectionArgs,String sort)
+    {
+        SQLiteDatabase db = mOpenHelper.getReadableDatabase();
+        Cursor ret = db.query(TABLE_ICC_SMS, projectionIn, selection, selectionArgs,
+                              null, null, sort);
+        return ret;
+    }
+
     /**
      * Return a Cursor listing all the messages stored on the ICC.
      */
@@ -403,35 +421,52 @@ public class SmsProvider extends ContentProvider {
             if((subscription == SUB1 && !mHasReadIcc1)
                 || (subscription == SUB2 && !mHasReadIcc2))
             {
-                
-                MSimSmsManager smsManager = MSimSmsManager.getDefault();
-                messages = smsManager.getAllMessagesFromIcc(subscription);
-                Log.d(TAG, "getAllMessagesFromIcc : messages.size() = " 
-                    + messages.size() + ",subscription = " + subscription);
-
-                if(messages.size() != 0)
+                try 
                 {
-                    if(subscription == SUB1)
-                    {
-                        mHasReadIcc1 = true;
-                    }
-                    else if(subscription == SUB2)
-                    {
-                        mHasReadIcc2 = true;
-                    }
-                }
+                    MSimSmsManager smsManager = MSimSmsManager.getDefault();
+                    messages = smsManager.getAllMessagesFromIcc(subscription);
+                    Log.d(TAG, "getAllMessagesFromIcc : messages.size() = " 
+                     + messages.size() + ",subscription = " + subscription);
 
+                    if(messages.size() != 0)
+                    {
+                         if(subscription == SUB1)
+                         {
+                             mHasReadIcc1 = true;
+                         }
+                         else if(subscription == SUB2)
+                         {
+                             mHasReadIcc2 = true;
+                         }
+                    }
+                } 
+                catch (Exception e) 
+                {
+                    Log.e(TAG, "getAllMessagesFromIcc : catch exception!");
+                    return null;
+                }
             }
         } else {
+            if (true || Log.isLoggable(TAG, Log.VERBOSE)) {
+                Log.d(TAG, "getAllMessagesFromIcc : mHasReadIcc = " + mHasReadIcc); 
+            }
+            
             if(!mHasReadIcc)
             {
-                messages = SmsManager.getAllMessagesFromIcc();
-                Log.d(TAG, "getAllMessagesFromIcc : messages.size() ="+messages.size());
-
-                if(messages.size() != 0)
+                try{
+                    messages = SmsManager.getAllMessagesFromIcc();
+                    Log.d(TAG, "getAllMessagesFromIcc : messages.size() ="+messages.size());
+                    
+                    if(messages.size() != 0)
+                    {
+                        mHasReadIcc = true;
+                    }   
+                }
+                catch (Exception e) 
                 {
-                    mHasReadIcc = true;
-                }                   
+                    Log.e(TAG, "getAllMessagesFromIcc : catch exception!");
+                    return null;
+                }                            
             }
         }
 
@@ -985,6 +1020,7 @@ public class SmsProvider extends ContentProvider {
             {
                 ContentResolver cr = getContext().getContentResolver();
                 cr.notifyChange(iccUri, null);
+                cr.notifyChange(ICC_SMS_URI, null);  
         }
     }    
 
@@ -1221,36 +1257,77 @@ public class SmsProvider extends ContentProvider {
         
         ContentResolver cr = getContext().getContentResolver();
         if (SUB2 == subscription)
-        {       
+        {   
+            mHasReadIcc2 = false;    
             cr.notifyChange(ICC2_URI, null);
+            cr.notifyChange(ICC_SMS_URI, null);  
         }
         else if (SUB1 == subscription)
-        {        
+        {     
+            mHasReadIcc1 = false;  
             cr.notifyChange(ICC1_URI, null);
+            cr.notifyChange(ICC_SMS_URI, null);  
         }
         else
-        {                    
+        {   
+            mHasReadIcc = false;  
             cr.notifyChange(ICC_URI, null);
+            cr.notifyChange(ICC_SMS_URI, null);  
         }     
         return result;
     }
 
-    
-    private int updateMessageOnIccDatabase(int subscription)
+    private int updateMessageOnIccDatabase(int index, int subID)
     {
-        Log.d(TAG, "updateMessageOnIccDatabase");
         ContentValues values = new ContentValues(1);
         values.put("status_on_icc", STATUS_ON_SIM_READ);
         String table = TABLE_ICC_SMS;
         SQLiteDatabase db = mOpenHelper.getWritableDatabase();
-        String where = "sub_id = " + subscription;
-
+        String where = "index_on_icc = " + index + " AND sub_id = " + subID;
         int count = db.update(table, values, where, null);
-        
-        ContentResolver cr = getContext().getContentResolver();
-        cr.notifyChange(getIccUri(subscription), null);
- 
+
         return count;
+    }
+        
+    private int updateMessageOnIcc(String messageIndexString, int subscription)
+    {
+        Log.d(TAG, "updateMessageOnIccDatabase : messageIndexString = " + messageIndexString);
+        boolean success = false;
+        try{
+            int index = Integer.parseInt(messageIndexString);
+            /* update the according iccsms table*/
+            updateMessageOnIccDatabase(index, subscription);
+
+            if(TelephonyManager.getDefault().isMultiSimEnabled())
+            {
+                success = MSimSmsManager.getDefault().setIccSmsRead(index - 1, true, subscription);
+            }
+            else
+            {
+                success = SmsManager.getDefault().setIccSmsRead(index - 1, true);
+            }
+            
+            if (success)
+            {
+                return 1;
+            }
+            else
+            {
+                return 0;
+            }
+                     
+        }
+        catch (NumberFormatException exception)
+        {
+            throw new IllegalArgumentException(
+                "Bad SMS SIM ID: " + messageIndexString);
+        }
+        finally
+        {   
+            ContentResolver cr = getContext().getContentResolver();
+            cr.notifyChange(getIccUri(subscription), null);  
+            cr.notifyChange(ICC_SMS_URI, null);  
+        } 
     }
     
     @Override
@@ -1309,14 +1386,17 @@ public class SmsProvider extends ContentProvider {
                 extraWhere = "_id=" + url.getPathSegments().get(1);
                 break;
                 
-            case SMS_ALL_ICC:
-                return updateMessageOnIccDatabase(SUB_INVALID);
+            case SMS_ICC:
+                String messageIndexString = url.getPathSegments().get(1);
+                return updateMessageOnIcc(messageIndexString, SUB_INVALID);
                 
-            case SMS_ALL_ICC1:
-                return updateMessageOnIccDatabase(SUB1);
+            case SMS_ICC1:
+                String messageIndexString1 = url.getPathSegments().get(1);
+                return updateMessageOnIcc(messageIndexString1, SUB1);
                 
-            case SMS_ALL_ICC2:
-                return updateMessageOnIccDatabase(SUB2);
+            case SMS_ICC2:
+                String messageIndexString2 = url.getPathSegments().get(1);
+                return updateMessageOnIcc(messageIndexString2, SUB2);
                 
             default:
                 throw new UnsupportedOperationException(
@@ -1390,6 +1470,7 @@ public class SmsProvider extends ContentProvider {
     private static final int SMS_ICC1 = 31;
     private static final int SMS_ALL_ICC2 = 32;
     private static final int SMS_ICC2 = 33;
+    private static final int SMS_ICC_MESSAGE     = 34;
 
     private static final UriMatcher sURLMatcher =
             new UriMatcher(UriMatcher.NO_MATCH);
@@ -1432,6 +1513,8 @@ public class SmsProvider extends ContentProvider {
         sURLMatcher.addURI("sms", "icc2/#", SMS_ICC2);
         sURLMatcher.addURI("sms", "sim2", SMS_ALL_ICC2);
         sURLMatcher.addURI("sms", "sim2/#", SMS_ICC2);
+        //URLs for given query in iccsms table
+        sURLMatcher.addURI("sms", "iccsms", SMS_ICC_MESSAGE);
         //URLs for the sms belongs to sub1 and sub2
         sURLMatcher.addURI("sms", "inbox/sub1", SMS_INBOX_SUB1);
         sURLMatcher.addURI("sms", "inbox/sub2", SMS_INBOX_SUB2);
