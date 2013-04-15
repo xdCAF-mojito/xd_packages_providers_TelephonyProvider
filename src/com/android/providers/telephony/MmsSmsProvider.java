@@ -339,7 +339,7 @@ public class MmsSmsProvider extends ContentProvider {
                 cursor = getConversationMessages(uri.getPathSegments().get(1), projection,
                         selection, sortOrder);
                 break;
-            case URI_MAILBOX_MESSAGES:           
+            case URI_MAILBOX_MESSAGES:  
                 cursor = getMailboxMessages(
                         uri.getPathSegments().get(1), projection, selection,
                         selectionArgs, sortOrder, false);
@@ -1306,7 +1306,7 @@ public class MmsSmsProvider extends ContentProvider {
             + "left join " 
             + "(select _id AS idd, type, read, 1 AS hs_msg_type from sms where thread_id NOTNULL "
             + "union " 
-            + "select _id AS idd, msg_box AS type, read, 2 AS hs_msg_type from pdu where thread_id NOTNULL)"
+            + "select _id AS idd, msg_box AS type, read, 2 AS hs_msg_type from pdu where thread_id NOTNULL AND m_type != 134)"
             + "on messeagebox.boxtype = type " 
             + "group by boxname order by _id";
         
@@ -1361,7 +1361,6 @@ public class MmsSmsProvider extends ContentProvider {
         columnsPresentInTable.add("recipient_ids");
         
         columnsPresentInTable.add(PendingMessages.ERROR_TYPE);
-        if (DEBUG) Log.w(LOG_TAG,"buildMailboxQuery 2");
         String compare = " = ";	
         int boxidInt = Integer.parseInt(mailboxId);
         if (boxidInt >= 4)
@@ -1370,7 +1369,7 @@ public class MmsSmsProvider extends ContentProvider {
         }
 
         String mmsSelection = Mms.MESSAGE_BOX + compare + mailboxId 
-            + " AND thread_id = threads._id";      
+            + " AND thread_id = threads._id AND m_type != 134";      
         String smsSelection = "(sms." + Sms.TYPE + compare + mailboxId 
                         + " AND thread_id = threads._id" + ") OR (sms." + Sms.TYPE
                         + compare + mailboxId
@@ -1379,7 +1378,7 @@ public class MmsSmsProvider extends ContentProvider {
         if (!TextUtils.isEmpty(selection))
         {
             mmsSelection = Mms.MESSAGE_BOX + compare + mailboxId
-                            + " AND thread_id = threads._id AND " 
+                            + " AND thread_id = threads._id AND m_type != 134 AND " 
                             + selection;
             smsSelection = "(sms." + Sms.TYPE + compare + mailboxId 
                             + " AND thread_id = threads._id"

@@ -412,6 +412,7 @@ public class SmsProvider extends ContentProvider {
      */
     private Cursor getAllMessagesFromIcc(int subscription, Uri iccUri) {       
         ArrayList<SmsMessage> messages = null;
+        int iccSmsCountAll = -1;
         if (TelephonyManager.getDefault().isMultiSimEnabled()) {
             if (true || Log.isLoggable(TAG, Log.VERBOSE)) {
                 Log.d(TAG, "getAllMessagesFromIcc : mHasReadIcc1 = " 
@@ -425,19 +426,21 @@ public class SmsProvider extends ContentProvider {
                 {
                     MSimSmsManager smsManager = MSimSmsManager.getDefault();
                     messages = smsManager.getAllMessagesFromIcc(subscription);
+                    iccSmsCountAll = smsManager.getSmsCapCountOnIcc(subscription);
                     Log.d(TAG, "getAllMessagesFromIcc : messages.size() = " 
-                     + messages.size() + ",subscription = " + subscription);
-
-                    if(messages.size() != 0)
+                     + messages.size() + ",subscription = " + subscription
+                     + ", iccSmsCountAll = " + iccSmsCountAll);
+                    
+                    if(iccSmsCountAll > 0)
                     {
-                         if(subscription == SUB1)
-                         {
-                             mHasReadIcc1 = true;
-                         }
-                         else if(subscription == SUB2)
-                         {
-                             mHasReadIcc2 = true;
-                         }
+                        if(subscription == SUB1)
+                        {
+                            mHasReadIcc1 = true;
+                        }
+                        else if(subscription == SUB2)
+                        {
+                            mHasReadIcc2 = true;
+                        }
                     }
                 } 
                 catch (Exception e) 
@@ -455,12 +458,13 @@ public class SmsProvider extends ContentProvider {
             {
                 try{
                     messages = SmsManager.getAllMessagesFromIcc();
-                    Log.d(TAG, "getAllMessagesFromIcc : messages.size() ="+messages.size());
-                    
-                    if(messages.size() != 0)
+                    iccSmsCountAll = SmsManager.getDefault().getSmsCapCountOnIcc();
+                    Log.d(TAG, "getAllMessagesFromIcc : messages.size() ="
+                        + messages.size() + ", iccSmsCountAll = " + iccSmsCountAll);
+                    if(iccSmsCountAll > 0)
                     {
-                        mHasReadIcc = true;
-                    }   
+                        mHasReadIcc = true;  
+                    }
                 }
                 catch (Exception e) 
                 {
