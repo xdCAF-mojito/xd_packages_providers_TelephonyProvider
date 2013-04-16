@@ -50,6 +50,7 @@ import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 
+import com.qrd.plugin.feature_query.FeatureQuery;
 
 public class TelephonyProvider extends ContentProvider
 {
@@ -63,15 +64,20 @@ public class TelephonyProvider extends ContentProvider
     private static final int URL_RESTOREAPN = 4;
     private static final int URL_PREFERAPN = 5;
     private static final int URL_PREFERAPN_NO_UPDATE = 6;
+    private static final int URL_PREFERAPN1 = 7;
 
     private static final String TAG = "TelephonyProvider";
     private static final String CARRIERS_TABLE = "carriers";
 
     private static final String PREF_FILE = "preferred-apn";
     private static final String COLUMN_APN_ID = "apn_id";
+    private static final String COLUMN_APN_ID1 ="apn_id1";
     private static final String APN_CONFIG_CHECKSUM = "apn_conf_checksum";
 
     private static final String PARTNER_APNS_PATH = "etc/apns-conf.xml";
+
+    private static final String CT_NUMERIC = "46003";
+    private static final String CT_PPP_NUMBER = "#777";
 
     private static final UriMatcher s_urlMatcher = new UriMatcher(UriMatcher.NO_MATCH);
 
@@ -85,6 +91,7 @@ public class TelephonyProvider extends ContentProvider
         s_urlMatcher.addURI("telephony", "carriers/restore", URL_RESTOREAPN);
         s_urlMatcher.addURI("telephony", "carriers/preferapn", URL_PREFERAPN);
         s_urlMatcher.addURI("telephony", "carriers/preferapn_no_update", URL_PREFERAPN_NO_UPDATE);
+        s_urlMatcher.addURI("telephony", "carriers/preferapn1", URL_PREFERAPN1);
 
         s_currentNullMap = new ContentValues(1);
         s_currentNullMap.put("current", (Long) null);
@@ -126,7 +133,9 @@ public class TelephonyProvider extends ContentProvider
         @Override
         public void onCreate(SQLiteDatabase db) {
             // Set up the database schema
-            db.execSQL("CREATE TABLE " + CARRIERS_TABLE +
+            String SQLString = null;
+            if ( FeatureQuery.FEATURE_SHOW_PPP_DIAL_NUMBER){
+                SQLString = "CREATE TABLE " + CARRIERS_TABLE +
                 "(_id INTEGER PRIMARY KEY," +
                     "name TEXT," +
                     "numeric TEXT," +
@@ -147,7 +156,34 @@ public class TelephonyProvider extends ContentProvider
                     "protocol TEXT," +
                     "roaming_protocol TEXT," +
                     "carrier_enabled BOOLEAN," +
-                    "bearer INTEGER);");
+                    "bearer INTEGER," +
+                    "PPP_number TEXT);";
+            }
+            else{
+                SQLString = "CREATE TABLE " + CARRIERS_TABLE +
+                        "(_id INTEGER PRIMARY KEY," +
+                        "name TEXT," +
+                        "numeric TEXT," +
+                        "mcc TEXT," +
+                        "mnc TEXT," +
+                        "apn TEXT," +
+                        "user TEXT," +
+                        "server TEXT," +
+                        "password TEXT," +
+                        "proxy TEXT," +
+                        "port TEXT," +
+                        "mmsproxy TEXT," +
+                        "mmsport TEXT," +
+                        "mmsc TEXT," +
+                        "authtype INTEGER," +
+                        "type TEXT," +
+                        "current INTEGER," +
+                        "protocol TEXT," +
+                        "roaming_protocol TEXT," +
+                        "carrier_enabled BOOLEAN," +
+                        "bearer INTEGER);";
+            }
+            db.execSQL(SQLString);
 
             initDatabase(db);
         }
@@ -354,6 +390,10 @@ public class TelephonyProvider extends ContentProvider
             if (row.containsKey(Telephony.Carriers.BEARER) == false) {
                 row.put(Telephony.Carriers.BEARER, 0);
             }
+            if (FeatureQuery.FEATURE_SHOW_PPP_DIAL_NUMBER){
+                if (CT_NUMERIC.equals(row.getAsString(Telephony.Carriers.NUMERIC)))
+                row.put("PPP_number",CT_PPP_NUMBER);
+            }
             db.insert(CARRIERS_TABLE, null, row);
         }
     }
@@ -405,9 +445,22 @@ public class TelephonyProvider extends ContentProvider
         editor.apply();
     }
 
+    private void setPreferredApnId1(Long id) {
+        Log.w(TAG, "setPreferredApnId1 id="+id);
+        SharedPreferences sp = getContext().getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE);
+        SharedPreferences.Editor editor = sp.edit();
+        editor.putLong(COLUMN_APN_ID1, id != null ? id.longValue() : -1);
+        editor.apply();
+    }
+
     private long getPreferredApnId() {
         SharedPreferences sp = getContext().getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE);
         return sp.getLong(COLUMN_APN_ID, -1);
+    }
+
+    private long getPreferredApnId1() {
+        SharedPreferences sp = getContext().getSharedPreferences(PREF_FILE, Context.MODE_PRIVATE);
+        return sp.getLong(COLUMN_APN_ID1, -1);
     }
 
     private long getAPNConfigCheckSum() {
@@ -457,6 +510,11 @@ public class TelephonyProvider extends ContentProvider
                 break;
             }
 
+            case URL_PREFERAPN1: {
+                qb.appendWhere("_id = " + getPreferredApnId1());
+                break;
+            }
+
             default: {
                 return null;
             }
@@ -479,6 +537,7 @@ public class TelephonyProvider extends ContentProvider
             return "vnd.android.cursor.item/telephony-carrier";
 
         case URL_PREFERAPN:
+        case URL_PREFERAPN1:
         case URL_PREFERAPN_NO_UPDATE:
             return "vnd.android.cursor.item/telephony-carrier";
 
@@ -596,6 +655,17 @@ public class TelephonyProvider extends ContentProvider
                 }
                 break;
             }
+
+            case URL_PREFERAPN1:
+            {
+                if (initialValues != null) {
+                    if(initialValues.containsKey(COLUMN_APN_ID1)) {
+                        setPreferredApnId1(initialValues.getAsLong(COLUMN_APN_ID1));
+                    }
+                }
+                break;
+            }
+
         }
 
         if (notify) {
@@ -646,6 +716,13 @@ public class TelephonyProvider extends ContentProvider
             {
                 setPreferredApnId((long)-1);
                 if (match == URL_PREFERAPN) count = 1;
+                break;
+            }
+
+            case URL_PREFERAPN1:
+            {
+                setPreferredApnId1((long)-1);
+                if (match == URL_PREFERAPN1) count = 1;
                 break;
             }
 
@@ -707,6 +784,17 @@ public class TelephonyProvider extends ContentProvider
                 break;
             }
 
+            case URL_PREFERAPN1:
+            {
+                if (values != null) {
+                    if (values.containsKey(COLUMN_APN_ID1)) {
+                        setPreferredApnId1(values.getAsLong(COLUMN_APN_ID1));
+                        if (match == URL_PREFERAPN1) count = 1;
+                    }
+                }
+                break;
+            }
+
             default: {
                 throw new UnsupportedOperationException("Cannot update that URL: " + url);
             }
@@ -731,6 +819,7 @@ public class TelephonyProvider extends ContentProvider
 
         db.delete(CARRIERS_TABLE, null, null);
         setPreferredApnId((long)-1);
+        setPreferredApnId1((long)-1);
         mOpenHelper.initDatabase(db);
     }
 }
