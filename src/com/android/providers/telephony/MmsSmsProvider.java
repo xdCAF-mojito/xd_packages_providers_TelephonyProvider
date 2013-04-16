@@ -93,7 +93,16 @@ public class MmsSmsProvider extends ContentProvider {
     private static final int URI_FIRST_LOCKED_MESSAGE_ALL          = 16;
     private static final int URI_FIRST_LOCKED_MESSAGE_BY_THREAD_ID = 17;
     private static final int URI_MESSAGE_ID_TO_THREAD              = 18;
-
+    private static final int URI_MAILBOX_MESSAGES                  = 19;
+    private static final int URI_SEARCH_MESSAGE                    = 20;
+    private static final int URI_MAILBOXS                          = 21;
+    private static final int URI_MAILBOXS_SMS                      = 22;
+    private static final int URI_MAILBOX_MESSAGES_COUNT            = 23;
+    
+    public static final int SEARCH_MODE_CONTENT = 0;
+    public static final int SEARCH_MODE_NAME    = 1;
+    public static final int SEARCH_MODE_NUMBER  = 2;
+    
     /**
      * the name of the table that is used to store the queue of
      * messages(both MMS and SMS) to be sent/downloaded.
@@ -228,6 +237,15 @@ public class MmsSmsProvider extends ContentProvider {
                 AUTHORITY, "conversations/#/subject",
                 URI_CONVERSATIONS_SUBJECT);
 
+        //"#" is the mailbox name id, such as inbox=1, sent=2, draft = 3 , outbox = 4
+        URI_MATCHER.addURI(AUTHORITY, "mailbox/#", URI_MAILBOX_MESSAGES);
+        URI_MATCHER.addURI(AUTHORITY, "mailboxs", URI_MAILBOXS);
+        URI_MATCHER.addURI(AUTHORITY, "mailboxs/sms", URI_MAILBOXS_SMS);
+        //URI for obtaining all short message count, add for cmcc test
+        URI_MATCHER.addURI(AUTHORITY, "messagescount", URI_MAILBOX_MESSAGES_COUNT);
+        // URI for search messages in mailbox mode with obtained search mode such as content, number and name
+        URI_MATCHER.addURI(AUTHORITY, "search-message", URI_SEARCH_MESSAGE);  
+        
         // URI for deleting obsolete threads.
         URI_MATCHER.addURI(AUTHORITY, "conversations/obsolete", URI_OBSOLETE_THREADS);
 
@@ -295,6 +313,9 @@ public class MmsSmsProvider extends ContentProvider {
             String selection, String[] selectionArgs, String sortOrder) {
         SQLiteDatabase db = mOpenHelper.getReadableDatabase();
         Cursor cursor = null;
+        Log.d(LOG_TAG , "query : uri = "+ uri 
+            + ", sURLMatcher.match(url) = "+ URI_MATCHER.match(uri));
+        
         switch(URI_MATCHER.match(uri)) {
             case URI_COMPLETE_CONVERSATIONS:
                 cursor = getCompleteConversations(projection, selection, sortOrder);
@@ -318,6 +339,23 @@ public class MmsSmsProvider extends ContentProvider {
                 cursor = getConversationMessages(uri.getPathSegments().get(1), projection,
                         selection, sortOrder);
                 break;
+            case URI_MAILBOX_MESSAGES:  
+                cursor = getMailboxMessages(
+                        uri.getPathSegments().get(1), projection, selection,
+                        selectionArgs, sortOrder, false);
+                break; 
+            case URI_MAILBOXS:            
+                cursor = getMailboxs(projection, selection,
+                                selectionArgs, sortOrder, false);
+                break;  
+            case URI_MAILBOXS_SMS: 
+                // query message count with boxtype only in sms table, add for cmcc test
+                cursor = getMailboxs(projection, selection,
+                                selectionArgs, sortOrder, true);
+                break;  
+           case URI_MAILBOX_MESSAGES_COUNT:
+                return getMailboxMessagesCount();
+                
             case URI_CONVERSATIONS_RECIPIENTS:
                 cursor = getConversationById(
                         uri.getPathSegments().get(1), projection, selection,
@@ -422,6 +460,9 @@ public class MmsSmsProvider extends ContentProvider {
                 }
                 break;
             }
+            case URI_SEARCH_MESSAGE:
+                cursor = getSearchMessages(uri, db);
+                break;
             case URI_PENDING_MSG: {
                 String protoName = uri.getQueryParameter("protocol");
                 String msgId = uri.getQueryParameter("message");
@@ -675,6 +716,48 @@ public class MmsSmsProvider extends ContentProvider {
         return cursor;
     }
 
+    
+    /**
+     * Return the thread ID for a recipients ID. 
+     *  If no thread exists with this ID, create
+     * one and return it.  Callers should always use
+     * Threads.getThreadId to access this information.
+     */
+    private synchronized String getThreadId(String recipientIds) {
+        String THREAD_QUERY = "SELECT _id FROM threads " +
+                "WHERE recipient_ids = ?";
+        String resultString = "0";                
+
+        if (DEBUG) {
+            Log.v(LOG_TAG, "getThreadId THREAD_QUERY: " + THREAD_QUERY +
+                    ", recipientIds=" + recipientIds);
+        }
+        Cursor cursor = null;
+        try
+        {
+            SQLiteDatabase db = mOpenHelper.getReadableDatabase();
+            cursor = db.rawQuery(THREAD_QUERY, new String[] { recipientIds });
+
+            if (cursor == null || cursor.getCount() == 0) 
+            {
+                return resultString;
+            }
+            
+            if (cursor.moveToFirst())
+            {
+                resultString = String.valueOf(cursor.getLong(0));
+            }
+        }
+        finally 
+        {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }        
+
+        return resultString;
+    }
+
     private static String concatSelections(String selection1, String selection2) {
         if (TextUtils.isEmpty(selection1)) {
             return selection2;
@@ -919,6 +1002,212 @@ public class MmsSmsProvider extends ContentProvider {
         return result;
     }
 
+    private long getSingleThreadId(String address) {
+        boolean isEmail = Mms.isEmailAddress(address);
+        String refinedAddress = isEmail ? address.toLowerCase() : address;
+        String selection = "address=?";
+        String[] selectionArgs;
+
+        if (isEmail) {
+            selectionArgs = new String[] { refinedAddress };
+        } else {
+            selection += " OR " + String.format("PHONE_NUMBERS_EQUAL(address, ?, %d)",
+                        (mUseStrictPhoneNumberComparation ? 1 : 0));
+            selectionArgs = new String[] { refinedAddress, refinedAddress };
+        }
+
+        Cursor cursor = null;
+
+        try 
+        {
+            SQLiteDatabase db = mOpenHelper.getReadableDatabase();
+            cursor = db.query(
+                    "canonical_addresses", ID_PROJECTION,
+                    selection, selectionArgs, null, null, null);
+
+            if (cursor.getCount() == 0) {
+                return -1L;
+            }
+
+            if (cursor.moveToFirst()) {
+                return cursor.getLong(cursor.getColumnIndexOrThrow(BaseColumns._ID));
+            }
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+
+        return -1L;
+    }
+    
+    /**
+     * Return the canonical address IDs for these addresses.
+     */
+    private Set<Long> getAddressIdsByAddressList(String[] addresses) {
+        int count = addresses.length;
+        Set<Long> result = new HashSet<Long>(count);
+
+        for (int i = 0; i < count; i++) 
+        {
+            String address = addresses[i];
+            if (!address.equals(PduHeaders.FROM_INSERT_ADDRESS_TOKEN_STR)) {
+                long id = getSingleThreadId(address);
+                if (id != -1L) {
+                    result.add(id);
+                } else {
+                    Log.e(LOG_TAG, "Address ID not found for: " + address);
+                }
+            }
+        }
+        return result;
+    }  
+
+    /**
+     * Return a String of the numbers in the given array, in order,
+     * separated by spaces.
+     */
+    private String getCommaSeparatedId(long[] addrIds) {
+        int size = addrIds.length;
+        StringBuilder buffer = new StringBuilder();
+
+        for (int i = 0; i < size; i++) 
+        {
+            if (i != 0) 
+            {
+                buffer.append(',');
+            }
+            buffer.append(getThreadId(String.valueOf(addrIds[i])));
+        }
+        return buffer.toString();
+    }
+    
+     /**
+        *This code queries the sms and mms tables and returns a unified result set
+        *of text matches.  We query the sms table which is pretty simple.  We also
+        *query the pdu, part and addr table to get the mms result.  Note that we're
+        *using a UNION so we have to have the same number of result columns from
+        *both queries.
+      */
+    private Cursor getSearchMessages(Uri uri, SQLiteDatabase db)
+    {
+        int searchMode = Integer.parseInt(uri.getQueryParameter("search_mode"));
+        String keyStr = uri.getQueryParameter("key_str");
+        int matchWhole = Integer.parseInt(uri.getQueryParameter("match_whole"));
+        Log.d(LOG_TAG, "getSearchMessages : searchMode ="+searchMode+",keyStr="+keyStr+",matchWhole="+matchWhole);
+        
+        String searchString = "%" + keyStr + "%";
+        String threadIdString = "";
+        
+        if (matchWhole == 1)
+        {
+            long[] addressIdSet = getSortedSet(getAddressIdsByAddressList(keyStr.split(",")));
+            threadIdString = getCommaSeparatedId(addressIdSet);          
+            if (TextUtils.isEmpty(threadIdString))
+            {
+                threadIdString = "0";
+            }
+        }      
+
+        String smsProjection = "'sms' AS transport_type, _id, thread_id,"
+                        + "address, body, sub_id, date, date_sent, read, type,"
+                        + "status, locked, NULL AS error_code,"
+                        + "NULL AS sub, NULL AS sub_cs, date, date_sent, read,"
+                        + "NULL as m_type,"
+                        + "NULL AS msg_box,"
+                        + "NULL AS d_rpt, NULL AS rr, NULL AS err_type,"
+                        + "locked, NULL AS st, NULL AS text_only,"
+                        + "sub_id, NULL AS recipient_ids";
+
+        String mmsProjection = "'mms' AS transport_type, pdu._id, thread_id,"
+                        + "addr.address AS address, part.text as body, sub_id, pdu.date * 1000 AS date, date_sent, read, NULL AS type,"
+                        + "NULL AS status, locked, NULL AS error_code,"                        
+                        + "sub, sub_cs, date, date_sent, read,"
+                        + "m_type,"
+                        + "pdu.msg_box AS msg_box,"
+                        + "d_rpt, rr, NULL AS err_type,"                        
+                        + "locked, NULL AS st, NULL AS text_only,"
+                        + "sub_id, NULL AS recipient_ids";
+        
+        String mmsProjectionForNumberSearch = "'mms' AS transport_type, pdu._id, thread_id,"
+                        + "addr.address AS address, NULL AS body, sub_id, pdu.date * 1000 AS date, date_sent, read, NULL AS type,"
+                        + "NULL AS status, locked, NULL AS error_code,"                        
+                        + "sub, sub_cs, date, date_sent, read,"
+                        + "m_type,"
+                        + "pdu.msg_box AS msg_box,"
+                        + "d_rpt, rr, NULL AS err_type,"                        
+                        + "locked, NULL AS st, NULL AS text_only,"
+                        + "sub_id, NULL AS recipient_ids";
+
+                        
+        String smsMailBoxConstraints = "";
+        String mmsMailBoxConstraints = "";
+        String smsQuery = "";
+        String mmsQuery = "";
+        String modemConstraints = "";
+        
+        if (searchMode == SEARCH_MODE_CONTENT)
+        {
+            smsQuery = String.format(
+                    "SELECT %s FROM sms WHERE (%sbody LIKE ?) ",
+                    smsProjection,
+                    modemConstraints);
+            mmsQuery = String.format(
+                    "SELECT %s FROM pdu,part,addr WHERE (%s(part.mid=pdu._id) AND " +
+                    "(addr.msg_id=pdu._id) AND " +
+                    "(addr.type=%d) AND " +
+                    "(part.ct='text/plain') AND " +
+                    "(body like ?)) GROUP BY pdu._id",
+                    mmsProjection,
+                    modemConstraints,                        
+                    PduHeaders.TO);
+        }
+        else if (searchMode == SEARCH_MODE_NUMBER && matchWhole == 0)
+        {
+            smsQuery = String.format(
+                    "SELECT %s FROM sms WHERE (%saddress LIKE ?)",
+                    smsProjection,
+                    modemConstraints);
+            mmsQuery = String.format(
+                    "SELECT %s FROM pdu,addr WHERE (%s " +
+                    "(addr.msg_id=pdu._id) AND " +
+                    "(address like ?))",
+                    mmsProjectionForNumberSearch,
+                    modemConstraints);
+        }
+        else if (searchMode == SEARCH_MODE_NUMBER && matchWhole == 1)
+        {
+            smsQuery = String.format(
+                    "SELECT %s FROM sms WHERE (%sthread_id in (%s))",
+                    smsProjection, 
+                    modemConstraints,                                                
+                    threadIdString);
+                    
+            mmsQuery = String.format(
+                    "SELECT %s FROM pdu,addr WHERE (%s" +
+                    "(thread_id in (%s)) AND " +
+                    "(addr.msg_id = pdu._id) AND " +
+                    "(addr.type=%d))",
+                    mmsProjectionForNumberSearch,
+                    modemConstraints,
+                    threadIdString,
+                    PduHeaders.TO);
+        }
+        
+        String rawQuery = String.format(
+                "%s UNION %s  ORDER BY date DESC",
+                smsQuery,
+                mmsQuery);
+        if (searchMode == SEARCH_MODE_CONTENT || (searchMode == SEARCH_MODE_NUMBER && matchWhole == 0))
+        {
+            return db.rawQuery(rawQuery, new String[] { searchString, searchString });    
+        }
+        else
+        {
+            return db.rawQuery(rawQuery, EMPTY_STRING_ARRAY);            
+        }
+    }
+    
     /**
      * Return the union of MMS and SMS messages for this thread ID.
      */
@@ -936,7 +1225,206 @@ public class MmsSmsProvider extends ContentProvider {
                 selection, "thread_id = " + threadIdString);
         String unionQuery = buildConversationQuery(projection, finalSelection, sortOrder);
 
+        //Log.d(LOG_TAG, "getConversationMessages(): unionQuery = " + unionQuery);
         return mOpenHelper.getReadableDatabase().rawQuery(unionQuery, EMPTY_STRING_ARRAY);
+    }
+
+    /**
+    * Return the SMS messages count on phone
+    */
+    private Cursor getMailboxMessagesCount() 
+    {                                     
+        String unionQuery = "select sum(a) AS count, 1 AS _id "
+                              + "from ("
+                              + "select count(_id) as a, 2 AS b from sms"
+                              + ")";
+
+        return mOpenHelper.getReadableDatabase().rawQuery(unionQuery, EMPTY_STRING_ARRAY);
+    }
+
+    /**
+     * Use this query:
+     *
+     * select msgbox.name, msgbox.boxtype, count(idd) as total, sum(ifnull(read,0)) as readed, 
+     * count(idd) - sum(ifnull(read,0)) as noread from msgbox left join(
+     * select _id AS idd, type, read from sms union select _id AS idd, msg_box AS type, 
+     * read from pdu  )on msgbox.boxtype = type group by type order by boxtype
+     */    
+    private Cursor getMailboxs(String[] projection, String selection,
+            String[] selectionArgs, String sortOrder, boolean onlySms)
+    {
+        String unionQuery = null;
+        if(onlySms)
+        {
+            unionQuery = buildMailboxsQueryOfSms(projection, null, selectionArgs, sortOrder);
+        }
+        else
+        {
+            unionQuery = buildMailboxsQuery(projection, null, selectionArgs, sortOrder);
+        }
+        
+        return mOpenHelper.getReadableDatabase().rawQuery(unionQuery, EMPTY_STRING_ARRAY);
+    }
+
+    /**
+     * Return the union of MMS and SMS messages in one mailbox.
+     */
+    private Cursor getMailboxMessages(
+            String mailboxId, String[] projection, String selection,
+            String[] selectionArgs, String sortOrder,boolean read) 
+    {
+        try {
+            Long.parseLong(mailboxId);
+        } catch (NumberFormatException exception) {
+            Log.e(LOG_TAG, "mailboxId must be a Long.");
+            return null;
+        }    
+        String unionQuery = buildMailboxMsgQuery(mailboxId,
+                projection, selection, selectionArgs, sortOrder, read);
+                
+        if(DEBUG){
+            Log.w(LOG_TAG, "getMailboxMessages : unionQuery =" + unionQuery);
+        }
+         
+        return mOpenHelper.getReadableDatabase().rawQuery(unionQuery, EMPTY_STRING_ARRAY);
+    }
+
+    private static String buildMailboxsQuery(String[] projection, 
+            String selection, String[] selectionArgs, String sortOrder)
+    {
+        String query = 
+            "select boxname, messeagebox._id AS _id ,messeagebox.boxtype, "
+            + "count(idd) as total, sum(ifnull(read,0)) as readed, "
+            + "count(idd) - sum(ifnull(read,0)) as noread from " 
+            + "(select 0 AS _id, \"Inbox\" AS boxname, 1 AS boxtype " 
+            + "union select 1 AS _id, \"Sent\" AS boxname, 2 AS boxtype "
+            + "union select 3 AS _id, \"Outbox\" AS boxname, 4 AS boxtype "
+            + "union select 4 AS _id, \"Outbox\" AS boxname, 5 AS boxtype "
+            + "union select 5 AS _id, \"Outbox\" AS boxname, 6 AS boxtype "
+            + "union select 6 AS _id, \"Drafts\" AS boxname, 3 AS boxtype "
+            + ")messeagebox "
+            + "left join " 
+            + "(select _id AS idd, type, read, 1 AS hs_msg_type from sms where thread_id NOTNULL "
+            + "union " 
+            + "select _id AS idd, msg_box AS type, read, 2 AS hs_msg_type from pdu where thread_id NOTNULL AND m_type != 134)"
+            + "on messeagebox.boxtype = type " 
+            + "group by boxname order by _id";
+        
+        return query;
+    }
+
+    private static String buildMailboxsQueryOfSms(String[] projection, 
+            String selection, String[] selectionArgs, String sortOrder)
+    {
+        String query = 
+            "select boxname, messeagebox._id AS _id ,messeagebox.boxtype, "
+            + "count(idd) as total, sum(ifnull(read,0)) as readed, "
+            + "count(idd) - sum(ifnull(read,0)) as noread from " 
+            + "(select 0 AS _id, \"Inbox\" AS boxname, 1 AS boxtype " 
+            + "union select 1 AS _id, \"Sent\" AS boxname, 2 AS boxtype "
+            + "union select 3 AS _id, \"Outbox\" AS boxname, 4 AS boxtype "
+            + "union select 4 AS _id, \"Outbox\" AS boxname, 5 AS boxtype "
+            + "union select 5 AS _id, \"Outbox\" AS boxname, 6 AS boxtype "
+            + "union select 6 AS _id, \"Drafts\" AS boxname, 3 AS boxtype "
+            + ")messeagebox "
+            + "left join " 
+            + "(select _id AS idd, type, read, 1 AS hs_msg_type from sms where thread_id NOTNULL)"
+            + "on messeagebox.boxtype = type " 
+            + "group by boxname order by _id";
+        
+        return query;
+    }
+    
+    private static String buildMailboxMsgQuery(String mailboxId, String[] projection,
+            String selection, String[] selectionArgs, String sortOrder,boolean read) {
+        String[] mmsProjection = createMmsMailboxProjection(projection);
+        String[] smsProjection = createSmsMailboxProjection(projection);
+
+        SQLiteQueryBuilder mmsQueryBuilder = new SQLiteQueryBuilder();
+        SQLiteQueryBuilder smsQueryBuilder = new SQLiteQueryBuilder();
+
+        mmsQueryBuilder.setDistinct(true);
+        smsQueryBuilder.setDistinct(true);
+        mmsQueryBuilder.setTables("threads, " + joinPduAndPendingMsgTables());
+        smsQueryBuilder.setTables(SmsProvider.TABLE_SMS + ", threads ");
+
+        String[] smsColumns = handleNullMessageProjection(smsProjection);
+        String[] mmsColumns = handleNullMessageProjection(mmsProjection);
+        String[] innerMmsProjection = makeMmsProjectionWithNormalizedDate(mmsColumns, 1000);
+        String[] innerSmsProjection = makeSmsProjectionWithNormalizedDate(smsColumns, 1);
+
+        Set<String> columnsPresentInTable = new HashSet<String>(MMS_COLUMNS);
+        columnsPresentInTable.add("pdu._id AS _id");
+        columnsPresentInTable.add("pdu.date AS date");
+        columnsPresentInTable.add("pdu.read AS read");
+        columnsPresentInTable.add("pdu.sub_id AS sub_id");        
+        columnsPresentInTable.add("recipient_ids");
+        
+        columnsPresentInTable.add(PendingMessages.ERROR_TYPE);
+        String compare = " = ";	
+        int boxidInt = Integer.parseInt(mailboxId);
+        if (boxidInt >= 4)
+        {
+            compare = " >= ";
+        }
+
+        String mmsSelection = Mms.MESSAGE_BOX + compare + mailboxId 
+            + " AND thread_id = threads._id AND m_type != 134";      
+        String smsSelection = "(sms." + Sms.TYPE + compare + mailboxId 
+                        + " AND thread_id = threads._id" + ") OR (sms." + Sms.TYPE
+                        + compare + mailboxId
+                        + " AND thread_id ISNULL" + ")";
+
+        if (!TextUtils.isEmpty(selection))
+        {
+            mmsSelection = Mms.MESSAGE_BOX + compare + mailboxId
+                            + " AND thread_id = threads._id AND m_type != 134 AND " 
+                            + selection;
+            smsSelection = "(sms." + Sms.TYPE + compare + mailboxId 
+                            + " AND thread_id = threads._id"
+                            + " AND " + selection 
+                            + ")"
+                            + " OR (sms." + Sms.TYPE
+                            + compare + mailboxId
+                            + " AND thread_id ISNULL"
+                            + " AND " + selection 
+                            + ")";
+        }
+
+        String mmsSubQuery = mmsQueryBuilder.buildUnionSubQuery(
+                MmsSms.TYPE_DISCRIMINATOR_COLUMN, innerMmsProjection,
+                columnsPresentInTable, 0, "mms",
+                mmsSelection,
+                selectionArgs, null, null);
+
+        Set<String> columnsPresentInSmsTable = new HashSet<String>(SMS_COLUMNS);
+        columnsPresentInSmsTable.add("sms._id AS _id");
+        columnsPresentInSmsTable.add("sms.date AS date");
+        columnsPresentInSmsTable.add("sms.read AS read");
+        columnsPresentInSmsTable.add("sms.type AS type");
+        columnsPresentInSmsTable.add("sms.sub_id AS sub_id");        
+        columnsPresentInSmsTable.add("recipient_ids");
+        
+        String smsSubQuery = smsQueryBuilder.buildUnionSubQuery(
+                MmsSms.TYPE_DISCRIMINATOR_COLUMN, innerSmsProjection, 
+                columnsPresentInSmsTable,
+                0, "sms", smsSelection,
+                selectionArgs, null, null);
+                
+        SQLiteQueryBuilder unionQueryBuilder = new SQLiteQueryBuilder();        
+        String unionQuery = null;
+        unionQuery = unionQueryBuilder.buildUnionQuery(
+            new String[] {mmsSubQuery, smsSubQuery},
+            null, null);
+        if (DEBUG){
+            Log.w(LOG_TAG, "buildMailboxMsgQuery : unionQuery = " + unionQuery);
+        }
+
+        SQLiteQueryBuilder outerQueryBuilder = new SQLiteQueryBuilder();
+        outerQueryBuilder.setTables("(" + unionQuery + ")");
+
+        return outerQueryBuilder.buildQuery(
+                projection, null, null, null, null, sortOrder, null);
     }
 
     /**
@@ -1045,6 +1533,67 @@ public class MmsSmsProvider extends ContentProvider {
         return newProjection;
     }
 
+    private static String[] createMmsMailboxProjection(String[] old) 
+    {
+        String[] newProjection = new String[old.length];
+        for (int i = 0; i < old.length; i++) 
+        {
+            if (old[i].equals(BaseColumns._ID)) 
+            {
+                newProjection[i] = "pdu._id AS _id";
+            }
+            else if (old[i].equals("date")) 
+            {
+                newProjection[i] = "pdu.date AS date";
+            }
+            else if (old[i].equals("read")) 
+            {
+                newProjection[i] = "pdu.read AS read";
+            }
+            else if (old[i].equals("sub_id")) 
+            {
+                newProjection[i] = "pdu.sub_id AS sub_id";
+            }
+            else 
+            {
+                newProjection[i] = old[i];
+            }
+        }
+        return newProjection;
+    }
+
+    private static String[] createSmsMailboxProjection(String[] old) 
+    {
+        String[] newProjection = new String[old.length];
+        for (int i = 0; i < old.length; i++) 
+        {
+            if (old[i].equals(BaseColumns._ID)) 
+            {
+                newProjection[i] = "sms._id AS _id";
+            }
+            else if (old[i].equals("date")) 
+            {
+                newProjection[i] = "sms.date AS date";
+            }
+            else if (old[i].equals("read")) 
+            {
+                newProjection[i] = "sms.read AS read";
+            }
+            else if (old[i].equals("type")) 
+            {
+                newProjection[i] = "sms.type AS type";
+            }
+            else if (old[i].equals("sub_id")) 
+            {
+                newProjection[i] = "sms.sub_id AS sub_id";
+            }
+            else 
+            {
+                newProjection[i] = old[i];
+            }
+        }
+        return newProjection;
+    }
     private Cursor getUndeliveredMessages(
             String[] projection, String selection, String[] selectionArgs,
             String sortOrder) {
@@ -1108,6 +1657,29 @@ public class MmsSmsProvider extends ContentProvider {
         String[] result = new String[projectionSize + 1];
 
         result[0] = "date * " + dateMultiple + " AS normalized_date";
+        System.arraycopy(projection, 0, result, 1, projectionSize);
+        return result;
+    }
+
+    /**
+     * Add normalized date to the list of columns for an inner
+     * projection.
+     */
+    private static String[] makeSmsProjectionWithNormalizedDate(
+            String[] projection, int dateMultiple) {
+        int projectionSize = projection.length;
+        String[] result = new String[projectionSize + 1];
+
+        result[0] = "sms.date * " + dateMultiple + " AS normalized_date";
+        System.arraycopy(projection, 0, result, 1, projectionSize);
+        return result;
+    }
+    private static String[] makeMmsProjectionWithNormalizedDate(
+        String[] projection, int dateMultiple) {
+        int projectionSize = projection.length;
+        String[] result = new String[projectionSize + 1];
+
+        result[0] = "pdu.date * " + dateMultiple + " AS normalized_date";
         System.arraycopy(projection, 0, result, 1, projectionSize);
         return result;
     }
