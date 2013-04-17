@@ -431,7 +431,7 @@ public class SmsProvider extends ContentProvider {
                      + messages.size() + ",subscription = " + subscription
                      + ", iccSmsCountAll = " + iccSmsCountAll);
                     
-                    if(iccSmsCountAll > 0)
+                    if(iccSmsCountAll > 0 && messages != null)
                     {
                         if(subscription == SUB1)
                         {
@@ -461,7 +461,7 @@ public class SmsProvider extends ContentProvider {
                     iccSmsCountAll = SmsManager.getDefault().getSmsCapCountOnIcc();
                     Log.d(TAG, "getAllMessagesFromIcc : messages.size() ="
                         + messages.size() + ", iccSmsCountAll = " + iccSmsCountAll);
-                    if(iccSmsCountAll > 0)
+                    if(iccSmsCountAll > 0 && messages != null)
                     {
                         mHasReadIcc = true;  
                     }

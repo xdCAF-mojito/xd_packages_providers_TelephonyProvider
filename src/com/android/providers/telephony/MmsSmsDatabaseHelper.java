@@ -182,6 +182,7 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
     // Unfortunately we cannot update only the thread that the part was
     // attached to, as it is possible that the part has been orphaned and
     // the message it was attached to is already gone.
+    /*
     private static final String PART_UPDATE_THREADS_ON_DELETE_TRIGGER =
                         "CREATE TRIGGER update_threads_on_delete_part " +
                         " AFTER DELETE ON part " +
@@ -197,6 +198,24 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                         "   ELSE 1 " +
                         "   END; " +
                         " END";
+    */
+    //Changed to reduce time when deleting MMS in thread
+    private static final String PART_UPDATE_THREADS_ON_DELETE_TRIGGER =
+                        "CREATE TRIGGER update_threads_on_delete_part " +
+                        " AFTER DELETE ON part " +
+                        " WHEN old.ct != 'text/plain' AND old.ct != 'application/smil' " +
+                        " BEGIN " +
+                        "  UPDATE threads SET has_attachment = " +
+                        "   CASE " +
+                        "    (SELECT COUNT(*) FROM part JOIN pdu " +
+                        "     ON part.mid=pdu._id  "+
+                        "      WHERE part.ct != 'text/plain' AND part.ct != 'application/smil') " +
+                        "    WHEN 0 THEN 0 " +
+                        "    ELSE 1 " +
+                        "    END " +
+                        "    WHERE threads._id=(SELECT thread_id FROM pdu WHERE _id=old.mid); " +
+                        " END";
+
 
     // When the 'thread_id' column in the pdu table is updated, we need to run the trigger to update
     // the threads table's has_attachment column, if the message has an attachment in 'part' table
