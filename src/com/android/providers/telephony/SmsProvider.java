@@ -457,7 +457,7 @@ public class SmsProvider extends ContentProvider {
             if(!mHasReadIcc)
             {
                 try{
-                    messages = SmsManager.getAllMessagesFromIcc();
+                    messages = SmsManager.getDefault().getAllMessagesFromIcc();
                     iccSmsCountAll = SmsManager.getDefault().getSmsCapCountOnIcc();
                     Log.d(TAG, "getAllMessagesFromIcc : messages.size() ="
                         + messages.size() + ", iccSmsCountAll = " + iccSmsCountAll);
