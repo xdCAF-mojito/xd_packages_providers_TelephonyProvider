@@ -1304,20 +1304,11 @@ public class SmsProvider extends ContentProvider {
 
             if(TelephonyManager.getDefault().isMultiSimEnabled())
             {
-                success = MSimSmsManager.getDefault().setIccSmsRead(index - 1, true, subscription);
+                MSimSmsManager.getDefault().setIccSmsRead(index - 1, true, subscription);
             }
             else
             {
-                success = SmsManager.getDefault().setIccSmsRead(index - 1, true);
-            }
-            
-            if (success)
-            {
-                return 1;
-            }
-            else
-            {
-                return 0;
+                SmsManager.getDefault().setIccSmsRead(index - 1, true);
             }
                      
         }
@@ -1332,6 +1323,8 @@ public class SmsProvider extends ContentProvider {
             cr.notifyChange(getIccUri(subscription), null);  
             cr.notifyChange(ICC_SMS_URI, null);  
         } 
+
+        return 1;
     }
     
     @Override
