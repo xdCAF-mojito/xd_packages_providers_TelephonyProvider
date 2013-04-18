@@ -431,7 +431,7 @@ public class SmsProvider extends ContentProvider {
                      + messages.size() + ",subscription = " + subscription
                      + ", iccSmsCountAll = " + iccSmsCountAll);
                     
-                    if(iccSmsCountAll > 0)
+                    if(iccSmsCountAll > 0 && messages != null)
                     {
                         if(subscription == SUB1)
                         {
@@ -457,11 +457,11 @@ public class SmsProvider extends ContentProvider {
             if(!mHasReadIcc)
             {
                 try{
-                    messages = SmsManager.getAllMessagesFromIcc();
+                    messages = SmsManager.getDefault().getAllMessagesFromIcc();
                     iccSmsCountAll = SmsManager.getDefault().getSmsCapCountOnIcc();
                     Log.d(TAG, "getAllMessagesFromIcc : messages.size() ="
                         + messages.size() + ", iccSmsCountAll = " + iccSmsCountAll);
-                    if(iccSmsCountAll > 0)
+                    if(iccSmsCountAll > 0 && messages != null)
                     {
                         mHasReadIcc = true;  
                     }
@@ -1305,20 +1305,11 @@ public class SmsProvider extends ContentProvider {
 
             if(TelephonyManager.getDefault().isMultiSimEnabled())
             {
-                success = MSimSmsManager.getDefault().setIccSmsRead(index - 1, true, subscription);
+                MSimSmsManager.getDefault().setIccSmsRead(index - 1, true, subscription);
             }
             else
             {
-                success = SmsManager.getDefault().setIccSmsRead(index - 1, true);
-            }
-            
-            if (success)
-            {
-                return 1;
-            }
-            else
-            {
-                return 0;
+                SmsManager.getDefault().setIccSmsRead(index - 1, true);
             }
                      
         }
@@ -1333,6 +1324,8 @@ public class SmsProvider extends ContentProvider {
             cr.notifyChange(getIccUri(subscription), null);  
             cr.notifyChange(ICC_SMS_URI, null);  
         } 
+
+        return 1;
     }
     
     @Override
