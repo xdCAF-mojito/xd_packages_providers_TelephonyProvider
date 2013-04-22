@@ -540,7 +540,7 @@ public class SmsProvider extends ContentProvider {
         values.put("is_status_report", -1);        
         values.put("transport_type", "sms");
         values.put(Sms.TYPE, mailboxId);
-        values.put("status_on_icc", status);
+        values.put("status_on_icc", STATUS_ON_SIM_READ);
 
         return insertMessageToIccDatabase(index, values, subscription);
     }
@@ -964,8 +964,12 @@ public class SmsProvider extends ContentProvider {
             }
             else
             {
+                Time then = new Time();
+                then.set(date);
+                byte[] datepdu = formatDateToPduGSM(then);
+                
                 SmsMessage.SubmitPdu pdus = SmsMessage.getSubmitPdu(null, 
-                    address, body, false, null, subId);
+                    address, body, false, datepdu, subId);
 
                 if (pdus == null)
                 {
@@ -1281,36 +1285,47 @@ public class SmsProvider extends ContentProvider {
         return result;
     }
 
-    private int updateMessageOnIccDatabase(int index, int subID)
+    private int updateMessageOnIccDatabase(int index, int subscription)
     {
         ContentValues values = new ContentValues(1);
         values.put("status_on_icc", STATUS_ON_SIM_READ);
         String table = TABLE_ICC_SMS;
         SQLiteDatabase db = mOpenHelper.getWritableDatabase();
-        String where = "index_on_icc = " + index + " AND sub_id = " + subID;
+        String where = "index_on_icc = " + index + " AND sub_id = " + subscription;
         int count = db.update(table, values, where, null);
 
         return count;
     }
-        
+
+    private int updateMessageOnIccDatabase(int subscription)
+    {
+        ContentValues values = new ContentValues(1);
+        values.put("status_on_icc", STATUS_ON_SIM_READ);
+        String table = TABLE_ICC_SMS;
+        SQLiteDatabase db = mOpenHelper.getWritableDatabase();
+        String where = "sub_id = " + subscription;
+        int count = db.update(table, values, where, null);
+
+        return count;
+    }
+    
     private int updateMessageOnIcc(String messageIndexString, int subscription)
     {
         Log.d(TAG, "updateMessageOnIccDatabase : messageIndexString = " + messageIndexString);
         boolean success = false;
         try{
             int index = Integer.parseInt(messageIndexString);
-            /* update the according iccsms table*/
-            updateMessageOnIccDatabase(index, subscription);
-
-            if(TelephonyManager.getDefault().isMultiSimEnabled())
+            
+            if(index == -1)
             {
-                MSimSmsManager.getDefault().setIccSmsRead(index - 1, true, subscription);
+                /* update all the messages in iccsms table */
+                updateMessageOnIccDatabase(subscription);
             }
             else
             {
-                SmsManager.getDefault().setIccSmsRead(index - 1, true);
-            }
-                     
+                /* update the according iccsms table*/
+                updateMessageOnIccDatabase(index, subscription);
+            }                     
         }
         catch (NumberFormatException exception)
         {
@@ -1384,17 +1399,30 @@ public class SmsProvider extends ContentProvider {
                 break;
                 
             case SMS_ICC:
+                //update the message of specify index 
                 String messageIndexString = url.getPathSegments().get(1);
                 return updateMessageOnIcc(messageIndexString, SUB_INVALID);
+
+            case SMS_ALL_ICC:
+                //update all the messages as read in iccsms table
+                return updateMessageOnIcc("-1", SUB_INVALID);
                 
             case SMS_ICC1:
                 String messageIndexString1 = url.getPathSegments().get(1);
                 return updateMessageOnIcc(messageIndexString1, SUB1);
+
+            case SMS_ALL_ICC1:
+                //update all the messages as read in iccsms table
+                return updateMessageOnIcc("-1", SUB1);
                 
             case SMS_ICC2:
                 String messageIndexString2 = url.getPathSegments().get(1);
                 return updateMessageOnIcc(messageIndexString2, SUB2);
                 
+            case SMS_ALL_ICC2:
+                    //update all the messages as read in iccsms table
+                    return updateMessageOnIcc("-1", SUB2);
+
             default:
                 throw new UnsupportedOperationException(
                         "URI " + url + " not supported");
