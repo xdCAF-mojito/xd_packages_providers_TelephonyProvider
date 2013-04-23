@@ -1262,7 +1262,7 @@ public class MmsSmsProvider extends ContentProvider {
         {
             unionQuery = buildMailboxsQuery(projection, null, selectionArgs, sortOrder);
         }
-        
+
         return mOpenHelper.getReadableDatabase().rawQuery(unionQuery, EMPTY_STRING_ARRAY);
     }
 
@@ -1304,9 +1304,9 @@ public class MmsSmsProvider extends ContentProvider {
             + "union select 6 AS _id, \"Drafts\" AS boxname, 3 AS boxtype "
             + ")messeagebox "
             + "left join " 
-            + "(select _id AS idd, type, read, 1 AS hs_msg_type from sms where thread_id NOTNULL "
+            + "(select sms._id AS idd, sms.type, sms.read, 1 AS hs_msg_type from sms, threads where thread_id NOTNULL AND thread_id = threads._id "
             + "union " 
-            + "select _id AS idd, msg_box AS type, read, 2 AS hs_msg_type from pdu where thread_id NOTNULL AND m_type != 134)"
+            + "select pdu._id AS idd, msg_box AS type, pdu.read, 2 AS hs_msg_type from pdu, threads where thread_id NOTNULL AND thread_id = threads._id AND m_type != 134)"
             + "on messeagebox.boxtype = type " 
             + "group by boxname order by _id";
         
