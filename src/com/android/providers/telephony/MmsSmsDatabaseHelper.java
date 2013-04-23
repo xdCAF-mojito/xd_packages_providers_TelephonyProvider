@@ -42,6 +42,7 @@ import android.provider.Telephony.Mms.Addr;
 import android.provider.Telephony.Mms.Part;
 import android.provider.Telephony.Mms.Rate;
 import android.provider.Telephony.MmsSms.PendingMessages;
+import android.text.TextUtils;
 import android.util.Log;
 
 import com.google.android.mms.pdu.EncodedStringValue;
@@ -260,6 +261,7 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
      * Look through all the recipientIds referenced by the threads and then delete any
      * unreferenced rows from the canonical_addresses table.
      */
+    /*
     private static void removeUnferencedCanonicalAddresses(SQLiteDatabase db) {
         Cursor c = db.query(MmsSmsProvider.TABLE_THREADS, new String[] { "recipient_ids" },
                 null, null, null, null, null);
@@ -282,6 +284,7 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                             }
                         }
                     }
+        
                     // Now build a selection string of all the unique recipient ids
                     StringBuilder sb = new StringBuilder();
                     Iterator<Integer> iter = recipientIds.iterator();
@@ -299,6 +302,40 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                 c.close();
             }
         }
+    }
+    */
+    private static void removeUnferencedCanonicalAddresses(SQLiteDatabase db) {
+        final Cursor c = db.rawQuery("SELECT DISTINCT recipient_ids FROM threads", null);
+        final StringBuilder recipientIds = new StringBuilder();
+        final String separator = ",";
+        try {
+            if (c != null && c.moveToFirst()) {
+                do {
+                    String id = c.getString(0);
+                    if (!TextUtils.isEmpty(id)) {
+                        id = id.trim();
+                        if (!TextUtils.isEmpty(id)) {
+                            recipientIds.append(id.replaceAll(" ", separator));
+                            recipientIds.append(separator);
+                        }
+                    }
+                } while (c.moveToNext());
+            }
+        } finally {
+            if (c != null) {
+                c.close();
+            }
+        }
+        
+        String ids = recipientIds.toString();
+        if (!TextUtils.isEmpty(ids) && ids.endsWith(separator)) {
+            ids = ids.substring(0, ids.lastIndexOf(separator));
+        } 
+        if(!TextUtils.isEmpty(ids) && ids.startsWith(separator)){
+            ids = ids.substring(1, ids.length());
+        }
+
+        db.delete("canonical_addresses", "_id NOT IN (" + ids + ")", null);
     }
 
     public static void updateThread(SQLiteDatabase db, long thread_id) {
