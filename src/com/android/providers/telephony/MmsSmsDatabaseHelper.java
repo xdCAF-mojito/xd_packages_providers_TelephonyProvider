@@ -32,6 +32,7 @@ import android.content.IntentFilter;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
+import android.os.SystemProperties;
 import android.provider.BaseColumns;
 import android.provider.Telephony;
 import android.provider.Telephony.Mms;
@@ -338,6 +339,11 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
         db.delete("canonical_addresses", "_id NOT IN (" + ids + ")", null);
     }
 
+    /* whether is in cmcc test mode,  0 is false ,1 is true */
+    public static boolean isCMCCTest(){
+        return SystemProperties.getInt("ro.cmcc.test", 0) == 1;
+    }
+
     public static void updateThread(SQLiteDatabase db, long thread_id) {
         if (thread_id < 0) {
             updateAllThreads(db, null, null);
@@ -356,7 +362,9 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                       new String[] { String.valueOf(thread_id) });
             if (rows > 0) {
                 // If this deleted a row, let's remove orphaned canonical_addresses and get outta here
-                removeUnferencedCanonicalAddresses(db);
+                if(!isCMCCTest()){
+                    removeUnferencedCanonicalAddresses(db);
+                }
             } else {
                 // Update the message count in the threads table as the sum
                 // of all messages in both the sms and pdu tables.
