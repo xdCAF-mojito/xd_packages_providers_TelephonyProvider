@@ -40,6 +40,7 @@ import android.provider.Telephony.Threads;
 import android.provider.Telephony.ThreadsColumns;
 import android.provider.Telephony.MmsSms.PendingMessages;
 import android.provider.Telephony.Sms.Conversations;
+import android.telephony.PhoneNumberUtils;
 import android.text.TextUtils;
 import android.util.Log;
 
@@ -1107,7 +1108,11 @@ public class MmsSmsProvider extends ContentProvider {
             {
                 threadIdString = "0";
             }
-        }      
+        }  
+        else if(searchMode == SEARCH_MODE_NUMBER && matchWhole == 0)
+        {
+            searchString = PhoneNumberUtils.formatNumber(searchString);
+        }
 
         String smsProjection = "'sms' AS transport_type, _id, thread_id,"
                         + "address, body, sub_id, date, date_sent, read, type,"
