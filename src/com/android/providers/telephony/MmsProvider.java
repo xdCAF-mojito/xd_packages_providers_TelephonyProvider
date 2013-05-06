@@ -385,33 +385,13 @@ public class MmsProvider extends ContentProvider {
 
             // text/plain and app application/smil store their "data" inline in the
             // table so there's no need to create the file
-            boolean plainText = false;
-            boolean smilText = false;
-            if ("text/plain".equals(contentType)) {
-                plainText = true;
-            } else if ("application/smil".equals(contentType)) {
-                smilText = true;
-            }
+            boolean plainText = "text/plain".equals(contentType);
+            boolean smilText = "application/smil".equals(contentType);
             if (!plainText && !smilText) {
-                // Use the filename if possible, otherwise use the current time as the name.
-                String contentLocation = values.getAsString("cl");
-                if (!TextUtils.isEmpty(contentLocation)) {
-                    File f = new File(contentLocation);
-                    contentLocation = "_" + f.getName();
-                } else {
-                    contentLocation = "";
-                }
-
                 // Generate the '_data' field of the part with default
                 // permission settings.
                 String path = getContext().getDir("parts", 0).getPath()
-                        + "/PART_" + System.currentTimeMillis() + contentLocation;
-
-                if (DownloadDrmHelper.isDrmConvertNeeded(contentType)) {
-                    // Adds the .fl extension to the filename if contentType is
-                    // "application/vnd.oma.drm.message"
-                    path = DownloadDrmHelper.modifyDrmFwLockFileExtension(path);
-                }
+                + "/PART_" + System.currentTimeMillis();
 
                 finalValues.put(Part._DATA, path);
 
