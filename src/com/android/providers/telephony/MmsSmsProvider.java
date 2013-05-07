@@ -45,6 +45,9 @@ import android.text.TextUtils;
 import android.util.Log;
 
 import com.google.android.mms.pdu.PduHeaders;
+import android.util.Patterns;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * This class provides the ability to query the MMS and SMS databases
@@ -397,6 +400,7 @@ public class MmsSmsProvider extends ContentProvider {
                         sortOrder);
                 break;
             case URI_SEARCH_SUGGEST: {
+			    /*
                 SEARCH_STRING[0] = uri.getQueryParameter("pattern") + '*' ;
 
                 // find the words which match the pattern using the snippet function.  The
@@ -412,6 +416,8 @@ public class MmsSmsProvider extends ContentProvider {
                 }
 
                 cursor = db.rawQuery(SEARCH_QUERY, SEARCH_STRING);
+				*/
+                cursor = myGetSearchMessages(uri,db);
                 break;
             }
             case URI_MESSAGE_ID_TO_THREAD: {
@@ -443,6 +449,7 @@ public class MmsSmsProvider extends ContentProvider {
                 break;
             }
             case URI_SEARCH: {
+			    /*
                 if (       sortOrder != null
                         || selection != null
                         || selectionArgs != null
@@ -459,6 +466,8 @@ public class MmsSmsProvider extends ContentProvider {
                 } catch (Exception ex) {
                     Log.e(LOG_TAG, "got exception: " + ex.toString());
                 }
+                */
+				cursor = myGetSearchMessages(uri,db);
                 break;
             }
             case URI_SEARCH_MESSAGE:
@@ -518,6 +527,152 @@ public class MmsSmsProvider extends ContentProvider {
         }
         return cursor;
     }
+    
+	private Cursor myGetSearchMessages(Uri uri, SQLiteDatabase db)
+    {
+        String msearchString = uri.getQueryParameter("pattern");
+		Log.v(LOG_TAG, "myGetSearchMessages : msearchString = " + msearchString);
+        boolean ifNullEmpty = false;
+        if(msearchString==null||msearchString.length()<=0){
+            return null;
+        }else{
+            for(int i=0;i<msearchString.length();i++){
+                if(i>=msearchString.length()){ifNullEmpty=true;}
+                if(!(msearchString.charAt(i)==' ')){break;}
+            }
+        }
+        if(ifNullEmpty) return null;
+
+        // This code queries the sms and mms tables and returns a unified result set
+        // of text matches.  We query the sms table which is pretty simple.  We also
+        // query the pdu, part and addr table to get the mms result.  Note that we're
+        // using a UNION so we have to have the same number of result columns from
+        // both queries.
+        String keyStr = uri.getQueryParameter("pattern");
+        String keyStrName = uri.getQueryParameter("name");
+      
+        String searchString = "%" + keyStr + "%";
+         
+		String searchStringName = null;
+		if (keyStrName != null && keyStrName != "" && keyStrName.length() > 0) {
+			searchStringName = "%" + keyStrName + "%";
+		} else {
+			searchStringName = searchString;
+		}
+        String threadIdString = "";
+
+        
+        String smsProjection = "'sms' AS transport_type, _id, thread_id,"
+                        + "address, body, sub_id, date, date_sent, read, type,"
+                        + "status, locked, NULL AS error_code,"
+                        + "NULL AS sub, NULL AS sub_cs, date, date_sent, read,"
+                        + "NULL as m_type,"
+                        + "NULL AS msg_box,"
+                        + "NULL AS d_rpt, NULL AS rr, NULL AS err_type,"
+                        + "locked, NULL AS st, NULL AS text_only,"
+                        + "sub_id, NULL AS recipient_ids";
+
+        String mmsProjection = "'mms' AS transport_type, pdu._id, thread_id,"
+                        + "addr.address AS address, part.text as body, sub_id, pdu.date * 1000 AS date, date_sent, read, NULL AS type,"
+                        + "NULL AS status, locked, NULL AS error_code,"                        
+                        + "sub, sub_cs, date, date_sent, read,"
+                        + "m_type,"
+                        + "pdu.msg_box AS msg_box,"
+                        + "d_rpt, rr, NULL AS err_type,"                        
+                        + "locked, NULL AS st, NULL AS text_only,"
+                        + "sub_id, NULL AS recipient_ids";
+        
+        String mmsForNoTextProjection = "'mms' AS transport_type, pdu._id, thread_id,"
+                        + "addr.address AS address, NULL AS body, sub_id, pdu.date * 1000 AS date, date_sent, read, NULL AS type,"
+                        + "NULL AS status, locked, NULL AS error_code,"                        
+                        + "sub, sub_cs, date, date_sent, read,"
+                        + "m_type,"
+                        + "pdu.msg_box AS msg_box,"
+                        + "d_rpt, rr, NULL AS err_type,"                        
+                        + "locked, NULL AS st, NULL AS text_only,"
+                        + "sub_id, NULL AS recipient_ids";   
+        
+        String smsMailBoxConstraints = "";
+        String mmsMailBoxConstraints = "";
+        String smsQuery = "";
+        String mmsQuery = "";
+        String modemConstraints = "";
+        String mmsNoTextQuery="";
+
+        smsQuery = String.format(
+                "SELECT %s FROM sms WHERE ((%saddress LIKE ?) OR ( body LIKE ?))",
+                smsProjection,
+                modemConstraints);
+
+        mmsQuery = String.format(
+                "SELECT %s FROM pdu,part,addr WHERE (%s(part.mid=pdu._id) AND " +
+                "(addr.msg_id=pdu._id) AND " +
+                "(part.ct='text/plain') AND " +
+                "(" +
+                "((address like ?) AND (msg_box = 1) AND (addr.type = 137)) OR " +
+                "((address like ?) AND (msg_box = 2) AND (addr.type = 151)) OR " +
+                "(( body LIKE ?) AND (msg_box = 1) AND (addr.type = 137)) OR " +
+                "(( body LIKE ?) AND (msg_box = 2) AND (addr.type = 151)) "+
+                ")" +
+                ")",
+                mmsProjection,
+                modemConstraints,                        
+                PduHeaders.TO);
+
+
+          /*
+        mmsNoTextQuery = String.format(
+                "SELECT %s FROM pdu,addr WHERE (address LIKE ?)",
+                mmsForNoTextProjection,
+                modemConstraints);
+                */
+        
+        mmsNoTextQuery = String.format(
+                    "SELECT %s FROM pdu,addr WHERE (%s " +
+                    "(addr.msg_id=pdu._id) AND " +
+                    "(address like ?))",
+                    mmsForNoTextProjection,
+                    modemConstraints);
+
+    	String mmsEndQuery = "";
+    	boolean mmsTarg = isNumber(keyStr);
+    	if(mmsTarg){
+    		mmsEndQuery=mmsNoTextQuery;
+    	}else{
+    		mmsEndQuery=mmsQuery;
+    	}
+        
+        String rawQuery = String.format("%s UNION %s ORDER BY date DESC",
+            smsQuery, mmsEndQuery);
+
+        String[] searchStr;
+        if(mmsTarg){
+            searchStr=new String[] { searchStringName, searchString, searchStringName};
+        }else{
+            searchStr=new String[] { searchStringName, searchString, searchStringName, searchStringName, searchString, searchString};
+        }
+        Log.v(LOG_TAG, "myGetSearchMessages : finalrawQuery = " + rawQuery);
+        Log.v(LOG_TAG, "myGetSearchMessages : the final searchStr = " + searchStr[0]);
+        return db.rawQuery(rawQuery, searchStr); 
+  
+    }
+
+	 public static boolean isNumber(String str){
+    	if(str == null){
+            return false;
+        }
+
+    	for(int i=0;i<str.length();i++){
+        	if(i==0&&str.charAt(i)=='+'){
+        		continue;
+        	}
+    		if(!Character.isDigit(str.charAt(i))){
+    			return false;
+    		}
+        }
+    	return true;
+    }
+     
 
     /**
      * Return the canonical address ID for this address.
@@ -1108,12 +1263,14 @@ public class MmsSmsProvider extends ContentProvider {
             {
                 threadIdString = "0";
             }
-        }  
+        } 
+        /*
         else if(searchMode == SEARCH_MODE_NUMBER && matchWhole == 0)
         {
             searchString = PhoneNumberUtils.formatNumber(searchString);
+            Log.d(LOG_TAG, "getSearchMessages : searchString = "+searchString);
         }
-
+        */
         String smsProjection = "'sms' AS transport_type, _id, thread_id,"
                         + "address, body, sub_id, date, date_sent, read, type,"
                         + "status, locked, NULL AS error_code,"
