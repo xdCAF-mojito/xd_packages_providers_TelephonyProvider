@@ -63,6 +63,8 @@ public class SmsProvider extends ContentProvider {
     private static final String TABLE_RAW = "raw";
     private static final String TABLE_SR_PENDING = "sr_pending";
     private static final String TABLE_WORDS = "words";
+    //max short message count , add for cmcc test
+    public static int MAX_SMS_MESSAGE_COUNT = 2000;
 
     /** Free space (TS 51.011 10.5.3). */
     static public final int STATUS_ON_SIM_FREE      = 0;
@@ -83,6 +85,9 @@ public class SmsProvider extends ContentProvider {
     private static boolean mHasReadIcc = false;
     private static boolean mHasReadIcc1 = false;
     private static boolean mHasReadIcc2 = false;
+    private final Object mIccLock = new Object();
+    private final Object mIcc1Lock = new Object();
+    private final Object mIcc2Lock = new Object();
 
     /**
      * These are the columns that are available when reading SMS
@@ -343,7 +348,17 @@ public class SmsProvider extends ContentProvider {
         }
     }
 
-    
+    private Object getIccLock(int subscription) {
+        switch (subscription) {
+            case SUB1:
+                return mIcc1Lock;
+            case SUB2:
+                return mIcc2Lock;
+            default:
+                return mIccLock;
+        }
+    }
+        
     /**
      * Return a Cursor listing messages stored on the ICC by given selection.
      */
@@ -410,83 +425,87 @@ public class SmsProvider extends ContentProvider {
     /**
      * Return a Cursor listing all the messages stored on the ICC.
      */
-    private Cursor getAllMessagesFromIcc(int subscription, Uri iccUri) {       
-        ArrayList<SmsMessage> messages = null;
-        int iccSmsCountAll = -1;
-        if (TelephonyManager.getDefault().isMultiSimEnabled()) {
-            if (true || Log.isLoggable(TAG, Log.VERBOSE)) {
-                Log.d(TAG, "getAllMessagesFromIcc : mHasReadIcc1 = " 
-                    + mHasReadIcc1 + ",mHasReadIcc2 = " + mHasReadIcc2); 
-            }
-            
-            if((subscription == SUB1 && !mHasReadIcc1)
-                || (subscription == SUB2 && !mHasReadIcc2))
-            {
-                try 
-                {
-                    MSimSmsManager smsManager = MSimSmsManager.getDefault();
-                    messages = smsManager.getAllMessagesFromIcc(subscription);
-                    iccSmsCountAll = smsManager.getSmsCapCountOnIcc(subscription);
-                    Log.d(TAG, "getAllMessagesFromIcc : messages.size() = " 
-                     + messages.size() + ",subscription = " + subscription
-                     + ", iccSmsCountAll = " + iccSmsCountAll);
-                    
-                    if(iccSmsCountAll > 0 && messages != null)
-                    {
-                        if(subscription == SUB1)
-                        {
-                            mHasReadIcc1 = true;
-                        }
-                        else if(subscription == SUB2)
-                        {
-                            mHasReadIcc2 = true;
-                        }
-                    }
-                } 
-                catch (Exception e) 
-                {
-                    Log.e(TAG, "getAllMessagesFromIcc : catch exception!");
-                    return null;
+    private Cursor getAllMessagesFromIcc(int subscription, Uri iccUri) { 
+        Object iccLock = getIccLock(subscription);
+
+        synchronized(iccLock) {
+            ArrayList<SmsMessage> messages = null;
+            int iccSmsCountAll = -1;
+            if (TelephonyManager.getDefault().isMultiSimEnabled()) {
+                if (true || Log.isLoggable(TAG, Log.VERBOSE)) {
+                    Log.d(TAG, "getAllMessagesFromIcc : mHasReadIcc1 = " 
+                        + mHasReadIcc1 + ",mHasReadIcc2 = " + mHasReadIcc2); 
                 }
-            }
-        } else {
-            if (true || Log.isLoggable(TAG, Log.VERBOSE)) {
-                Log.d(TAG, "getAllMessagesFromIcc : mHasReadIcc = " + mHasReadIcc); 
-            }
-            
-            if(!mHasReadIcc)
-            {
-                try{
-                    messages = SmsManager.getDefault().getAllMessagesFromIcc();
-                    iccSmsCountAll = SmsManager.getDefault().getSmsCapCountOnIcc();
-                    Log.d(TAG, "getAllMessagesFromIcc : messages.size() ="
-                        + messages.size() + ", iccSmsCountAll = " + iccSmsCountAll);
-                    if(iccSmsCountAll > 0 && messages != null)
+                
+                if((subscription == SUB1 && !mHasReadIcc1)
+                    || (subscription == SUB2 && !mHasReadIcc2))
+                {
+                    try 
                     {
-                        mHasReadIcc = true;  
+                        MSimSmsManager smsManager = MSimSmsManager.getDefault();
+                        messages = smsManager.getAllMessagesFromIcc(subscription);
+                        iccSmsCountAll = smsManager.getSmsCapCountOnIcc(subscription);
+                        Log.d(TAG, "getAllMessagesFromIcc : messages.size() = " 
+                         + messages.size() + ",subscription = " + subscription
+                         + ", iccSmsCountAll = " + iccSmsCountAll);
+                        
+                        if(iccSmsCountAll > 0 && messages != null)
+                        {
+                            if(subscription == SUB1)
+                            {
+                                mHasReadIcc1 = true;
+                            }
+                            else if(subscription == SUB2)
+                            {
+                                mHasReadIcc2 = true;
+                            }
+                        }
+                    } 
+                    catch (Exception e) 
+                    {
+                        Log.e(TAG, "getAllMessagesFromIcc : catch exception!");
+                        return null;
                     }
                 }
-                catch (Exception e) 
+            } else {
+                if (true || Log.isLoggable(TAG, Log.VERBOSE)) {
+                    Log.d(TAG, "getAllMessagesFromIcc : mHasReadIcc = " + mHasReadIcc); 
+                }
+                
+                if(!mHasReadIcc)
                 {
-                    Log.e(TAG, "getAllMessagesFromIcc : catch exception!");
-                    return null;
-                }                            
+                    try{
+                        messages = SmsManager.getDefault().getAllMessagesFromIcc();
+                        iccSmsCountAll = SmsManager.getDefault().getSmsCapCountOnIcc();
+                        Log.d(TAG, "getAllMessagesFromIcc : messages.size() ="
+                            + messages.size() + ", iccSmsCountAll = " + iccSmsCountAll);
+                        if(iccSmsCountAll > 0 && messages != null)
+                        {
+                            mHasReadIcc = true;  
+                        }
+                    }
+                    catch (Exception e) 
+                    {
+                        Log.e(TAG, "getAllMessagesFromIcc : catch exception!");
+                        return null;
+                    }                            
+                }
             }
-        }
 
-        if(messages != null)
-        {
-            final int count = messages.size();
-            //MatrixCursor cursor = new MatrixCursor(ICC_COLUMNS, count);
-            for (int i = 0; i < count; i++) {
-                SmsMessage message = messages.get(i);
-                if (message != null) {
-                    //cursor.addRow(convertIccToSms(message, i, subscription));
-                    insertSmsMessageToIccDatabase(message, subscription);
+            if(messages != null)
+            {
+                final int count = messages.size();
+                //MatrixCursor cursor = new MatrixCursor(ICC_COLUMNS, count);
+                for (int i = 0; i < count; i++) {
+                    SmsMessage message = messages.get(i);
+                    if (message != null) {
+                        //cursor.addRow(convertIccToSms(message, i, subscription));
+                        insertSmsMessageToIccDatabase(message, subscription);
+                    }
                 }
             }
         }
-
+        
         return withIccNotificationUri(querySmsOnIccDatabase(subscription, iccUri), iccUri);
     }
 
@@ -640,6 +659,35 @@ public class SmsProvider extends ContentProvider {
         return null;
     }
 
+     /**
+    * Return the SMS messages count on phone
+    */
+    private int getMailboxMessagesCount() 
+    {    
+        int msgCount = -1;
+        String unionQuery = "select sum(a) AS count, 1 AS _id "
+                              + "from ("
+                              + "select count(_id) as a, 2 AS b from sms"
+                              + ")";
+
+        Cursor c = mOpenHelper.getReadableDatabase().rawQuery(unionQuery, new String[0]);
+        
+        if (c == null)
+        {
+            return msgCount;
+        }
+        if (c.moveToFirst())
+        {
+            msgCount = c.getInt(0);
+            c.close();
+            return msgCount;
+        }
+        
+        c.close();
+        return msgCount;
+    }
+     
+
     @Override
     public Uri insert(Uri url, ContentValues initialValues) {
         ContentValues values;
@@ -738,6 +786,20 @@ public class SmsProvider extends ContentProvider {
         SQLiteDatabase db = mOpenHelper.getWritableDatabase();
 
         if (table.equals(TABLE_SMS)) {
+
+            if (MmsSmsDatabaseHelper.isCMCCTest())
+            {
+                int msgCount = getMailboxMessagesCount();
+                if (Log.isLoggable(TAG, Log.VERBOSE)) {
+                    Log.d(TAG, "insert : short messages count is " + msgCount);
+                }
+
+                if (msgCount >= MAX_SMS_MESSAGE_COUNT)
+                {
+                    return null;
+                }
+            }
+                        
             boolean addDate = false;
             boolean addType = false;
 
