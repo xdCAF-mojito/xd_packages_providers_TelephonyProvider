@@ -693,9 +693,14 @@ public class MmsSmsProvider extends ContentProvider {
         if (!isPhoneNumber) {
             selectionArgs = new String[] { refinedAddress };
         } else {
-            selection += " OR PHONE_NUMBERS_EQUAL(address, ?, " +
-                        (mUseStrictPhoneNumberComparation ? 1 : 0) + ")";
-            selectionArgs = new String[] { refinedAddress, refinedAddress };
+            Matcher fetionMatch = Patterns.FETION.matcher(address);
+            if ( fetionMatch.matches()) {
+				 selectionArgs = new String[] { refinedAddress };
+        	} else {
+                selection += " OR PHONE_NUMBERS_EQUAL(address, ?, " +
+                            (mUseStrictPhoneNumberComparation ? 1 : 0) + ")";
+                selectionArgs = new String[] { refinedAddress, refinedAddress };
+            }
         }
 
         Cursor cursor = null;
