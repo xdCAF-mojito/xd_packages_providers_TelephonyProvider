@@ -400,7 +400,7 @@ public class MmsSmsProvider extends ContentProvider {
                         sortOrder);
                 break;
             case URI_SEARCH_SUGGEST: {
-			    /*
+           /*
                 SEARCH_STRING[0] = uri.getQueryParameter("pattern") + '*' ;
 
                 // find the words which match the pattern using the snippet function.  The
@@ -449,7 +449,7 @@ public class MmsSmsProvider extends ContentProvider {
                 break;
             }
             case URI_SEARCH: {
-			    /*
+           /*
                 if (       sortOrder != null
                         || selection != null
                         || selectionArgs != null
@@ -467,7 +467,7 @@ public class MmsSmsProvider extends ContentProvider {
                     Log.e(LOG_TAG, "got exception: " + ex.toString());
                 }
                 */
-				cursor = myGetSearchMessages(uri,db);
+                cursor = myGetSearchMessages(uri,db);
                 break;
             }
             case URI_SEARCH_MESSAGE:
@@ -528,17 +528,22 @@ public class MmsSmsProvider extends ContentProvider {
         return cursor;
     }
     
-	private Cursor myGetSearchMessages(Uri uri, SQLiteDatabase db)
+    private Cursor myGetSearchMessages(Uri uri, SQLiteDatabase db)
     {
         String msearchString = uri.getQueryParameter("pattern");
-		Log.v(LOG_TAG, "myGetSearchMessages : msearchString = " + msearchString);
+        Log.v(LOG_TAG, "myGetSearchMessages : msearchString = " + msearchString);
         boolean ifNullEmpty = false;
-        if(msearchString==null||msearchString.length()<=0){
+        
+        if(msearchString == null || msearchString.length() <= 0){
             return null;
         }else{
-            for(int i=0;i<msearchString.length();i++){
-                if(i>=msearchString.length()){ifNullEmpty=true;}
-                if(!(msearchString.charAt(i)==' ')){break;}
+            for(int i = 0; i < msearchString.length(); i++){
+                if(i >= msearchString.length()){
+                    ifNullEmpty=true;
+                }
+                if(!(msearchString.charAt(i)==' ')){
+                    break;
+                }
             }
         }
         if(ifNullEmpty) return null;
@@ -551,14 +556,6 @@ public class MmsSmsProvider extends ContentProvider {
         String keyStr = uri.getQueryParameter("pattern");
         String keyStrName = uri.getQueryParameter("name");
       
-        String searchString = "%" + keyStr + "%";
-         
-		String searchStringName = null;
-		if (keyStrName != null && keyStrName != "" && keyStrName.length() > 0) {
-			searchStringName = "%" + keyStrName + "%";
-		} else {
-			searchStringName = searchString;
-		}
         String threadIdString = "";
 
         
@@ -581,9 +578,9 @@ public class MmsSmsProvider extends ContentProvider {
                         + "d_rpt, rr, NULL AS err_type,"                        
                         + "locked, NULL AS st, NULL AS text_only,"
                         + "sub_id, NULL AS recipient_ids";
-        
+                
         String mmsForNoTextProjection = "'mms' AS transport_type, pdu._id, thread_id,"
-                        + "addr.address AS address, NULL AS body, sub_id, pdu.date * 1000 AS date, date_sent, read, NULL AS type,"
+                        + "addr.address AS address, addr.address AS body, sub_id, pdu.date * 1000 AS date, date_sent, read, type,"
                         + "NULL AS status, locked, NULL AS error_code,"                        
                         + "sub, sub_cs, date, date_sent, read,"
                         + "m_type,"
@@ -600,12 +597,11 @@ public class MmsSmsProvider extends ContentProvider {
         String mmsNoTextQuery="";
 
         smsQuery = String.format(
-                "SELECT %s FROM sms WHERE ((%saddress LIKE ?) OR ( body LIKE ?))",
-                smsProjection,
-                modemConstraints);
+                "SELECT %s FROM sms WHERE ((address LIKE ?) OR ( body LIKE ?))",
+                smsProjection);
 
         mmsQuery = String.format(
-                "SELECT %s FROM pdu,part,addr WHERE (%s(part.mid=pdu._id) AND " +
+                "SELECT %s FROM pdu,part,addr WHERE ((part.mid=pdu._id) AND " +
                 "(addr.msg_id=pdu._id) AND " +
                 "(part.ct='text/plain') AND " +
                 "(" +
@@ -620,32 +616,57 @@ public class MmsSmsProvider extends ContentProvider {
                 PduHeaders.TO);
 
 
-          /*
+          
         mmsNoTextQuery = String.format(
-                "SELECT %s FROM pdu,addr WHERE (address LIKE ?)",
+                "SELECT %s FROM pdu,addr WHERE (addr.msg_id=pdu._id) AND " +
+                "(" +
+                "((address LIKE ?) AND (msg_box = 1) AND (addr.type = 137)) OR " +
+                "((address like ?) AND (msg_box = 2) AND (addr.type = 151))" +
+                ")",
                 mmsForNoTextProjection,
                 modemConstraints);
-                */
-        
+                
+        /*
         mmsNoTextQuery = String.format(
-                    "SELECT %s FROM pdu,addr WHERE (%s " +
+                    "SELECT %s FROM pdu,addr,part WHERE (%s " +
                     "(addr.msg_id=pdu._id) AND " +
+                    "(part.ct='text/plain') AND " +
                     "(address like ?))",
                     mmsForNoTextProjection,
                     modemConstraints);
+                    */
 
-    	String mmsEndQuery = "";
-    	boolean mmsTarg = isNumber(keyStr);
-    	if(mmsTarg){
-    		mmsEndQuery=mmsNoTextQuery;
-    	}else{
-    		mmsEndQuery=mmsQuery;
-    	}
+        String mmsEndQuery = "";
+        boolean mmsTarg = isNumber(keyStr);
+
+        if(mmsTarg){
+            mmsEndQuery=mmsNoTextQuery;
+            if(keyStr.contains("86"))
+            {
+                keyStrName = PhoneNumberUtils.stripSeparators(keyStr);
+            }
+
+        }else{
+            mmsEndQuery=mmsQuery;
+        }
+
+        String searchString = "%" + keyStr + "%";
+         
+        String searchStringName = null;
+        if (keyStrName != null && keyStrName != "" && keyStrName.length() > 0) {
+            searchStringName = "%" + keyStrName + "%";
+        } else {
+            searchStringName = searchString;
+        }
+
+        Log.d(LOG_TAG, "myGetSearchMessages : searchString = " + searchString 
+            + ", searchStringName = " + searchStringName);
         
         String rawQuery = String.format("%s UNION %s ORDER BY date DESC",
             smsQuery, mmsEndQuery);
 
         String[] searchStr;
+        
         if(mmsTarg){
             searchStr=new String[] { searchStringName, searchString, searchStringName};
         }else{
@@ -657,20 +678,21 @@ public class MmsSmsProvider extends ContentProvider {
   
     }
 
-	 public static boolean isNumber(String str){
-    	if(str == null){
+    public static boolean isNumber(String str){
+        if(str == null){
             return false;
         }
 
-    	for(int i=0;i<str.length();i++){
-        	if(i==0&&str.charAt(i)=='+'){
-        		continue;
-        	}
-    		if(!Character.isDigit(str.charAt(i))){
-    			return false;
-    		}
+        for(int i=0;i<str.length();i++){
+            if(i==0&& (str.charAt(i)=='+' || str.charAt(i)==' ')){
+                continue;
+            }
+            if(!Character.isDigit(str.charAt(i))){
+                return false;
+            }
         }
-    	return true;
+        
+        return true;
     }
      
 
@@ -695,8 +717,8 @@ public class MmsSmsProvider extends ContentProvider {
         } else {
             Matcher fetionMatch = Patterns.FETION.matcher(address);
             if ( fetionMatch.matches()) {
-				 selectionArgs = new String[] { refinedAddress };
-        	} else {
+                selectionArgs = new String[] { refinedAddress };
+            } else {
                 selection += " OR PHONE_NUMBERS_EQUAL(address, ?, " +
                             (mUseStrictPhoneNumberComparation ? 1 : 0) + ")";
                 selectionArgs = new String[] { refinedAddress, refinedAddress };
@@ -1269,13 +1291,7 @@ public class MmsSmsProvider extends ContentProvider {
                 threadIdString = "0";
             }
         } 
-        /*
-        else if(searchMode == SEARCH_MODE_NUMBER && matchWhole == 0)
-        {
-            searchString = PhoneNumberUtils.formatNumber(searchString);
-            Log.d(LOG_TAG, "getSearchMessages : searchString = "+searchString);
-        }
-        */
+
         String smsProjection = "'sms' AS transport_type, _id, thread_id,"
                         + "address, body, sub_id, date, date_sent, read, type,"
                         + "status, locked, NULL AS error_code,"
