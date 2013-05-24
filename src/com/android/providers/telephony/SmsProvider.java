@@ -559,6 +559,7 @@ public class SmsProvider extends ContentProvider {
         values.put("is_status_report", -1);        
         values.put("transport_type", "sms");
         values.put(Sms.TYPE, mailboxId);
+        values.put("status", status);
         values.put("status_on_icc", STATUS_ON_SIM_READ);
 
         return insertMessageToIccDatabase(index, values, subscription);
@@ -786,7 +787,7 @@ public class SmsProvider extends ContentProvider {
         SQLiteDatabase db = mOpenHelper.getWritableDatabase();
 
         if (table.equals(TABLE_SMS)) {
-
+            /*
             if (MmsSmsDatabaseHelper.isCMCCTest())
             {
                 int msgCount = getMailboxMessagesCount();
@@ -799,7 +800,7 @@ public class SmsProvider extends ContentProvider {
                     return null;
                 }
             }
-                        
+            */            
             boolean addDate = false;
             boolean addType = false;
 
