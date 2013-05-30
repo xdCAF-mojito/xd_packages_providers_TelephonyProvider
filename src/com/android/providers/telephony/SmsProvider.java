@@ -116,6 +116,7 @@ public class SmsProvider extends ContentProvider {
     @Override
     public boolean onCreate() {
         mOpenHelper = MmsSmsDatabaseHelper.getInstance(getContext());
+        deleteAllIccSmsOnDatabase();
         return true;
     }
 
@@ -495,6 +496,7 @@ public class SmsProvider extends ContentProvider {
             if(messages != null)
             {
                 final int count = messages.size();
+                Log.d(TAG, "getAllMessagesFromIcc : count = " + count);
                 //MatrixCursor cursor = new MatrixCursor(ICC_COLUMNS, count);
                 for (int i = 0; i < count; i++) {
                     SmsMessage message = messages.get(i);
@@ -507,6 +509,15 @@ public class SmsProvider extends ContentProvider {
         }
         
         return withIccNotificationUri(querySmsOnIccDatabase(subscription, iccUri), iccUri);
+    }
+
+    private int deleteAllIccSmsOnDatabase()
+    {
+        String table = TABLE_ICC_SMS;
+        SQLiteDatabase db = mOpenHelper.getWritableDatabase();
+        int result = db.delete(table, null, null);
+
+        return result;
     }
 
     private Cursor querySmsOnIccDatabase(int subscription, Uri iccUri)
@@ -1156,17 +1167,21 @@ public class SmsProvider extends ContentProvider {
     public int delete(Uri url, String where, String[] whereArgs) {
         int count;
         int match = sURLMatcher.match(url);
-        if (Log.isLoggable(TAG, Log.VERBOSE)) {
+        if (true || Log.isLoggable(TAG, Log.VERBOSE)) {
             Log.d(TAG, "delete : url = " + url);
         }
         
         SQLiteDatabase db = mOpenHelper.getWritableDatabase();
         switch (match) {
             case SMS_ALL:
+                ArrayList<Integer> threadIdList = 
+                    MmsSmsDatabaseHelper.getNeedUpateThreadId(db, where, whereArgs);
+                
                 count = db.delete(TABLE_SMS, where, whereArgs);
                 if (count != 0) {
                     // Don't update threads unless something changed.
-                    MmsSmsDatabaseHelper.updateAllThreads(db, where, whereArgs);
+                    //MmsSmsDatabaseHelper.updateAllThreads(db, where, whereArgs);
+                    MmsSmsDatabaseHelper.updateThreadsList(db, threadIdList);
                 }
                 break;
 
@@ -1325,6 +1340,7 @@ public class SmsProvider extends ContentProvider {
         }
 
         int result = db.delete(table, where, null);
+        Log.d(TAG, "deleteAllFromIccDatabase : result = " + result);
         
         ContentResolver cr = getContext().getContentResolver();
         if (SUB2 == subscription)

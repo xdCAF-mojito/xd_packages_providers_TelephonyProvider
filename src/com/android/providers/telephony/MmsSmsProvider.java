@@ -1419,7 +1419,7 @@ public class MmsSmsProvider extends ContentProvider {
     {                                     
         String unionQuery = "select sum(a) AS count, 1 AS _id "
                               + "from ("
-                              + "select count(_id) as a, 2 AS b from sms"
+                              + "select count(sms._id) as a, 2 AS b from sms, threads where thread_id NOTNULL AND thread_id = threads._id"
                               + ")";
 
         return mOpenHelper.getReadableDatabase().rawQuery(unionQuery, EMPTY_STRING_ARRAY);

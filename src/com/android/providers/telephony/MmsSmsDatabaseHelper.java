@@ -387,6 +387,11 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                 db.execSQL(
                 "  UPDATE threads" +
                 "  SET" +
+                "  read =" +
+                "    (SELECT read FROM" +
+                "        (SELECT date * 1000 AS date, read, thread_id FROM pdu" +
+                "         UNION SELECT date, read, thread_id FROM sms)" +
+                "     WHERE thread_id = " + thread_id + " ORDER BY date DESC LIMIT 1)," +
                 "  date =" +
                 "    (SELECT date FROM" +
                 "        (SELECT date * 1000 AS date, thread_id FROM pdu" +
@@ -482,6 +487,54 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
         } finally {
             db.endTransaction();
         }
+    }
+
+    public static ArrayList<Integer> getNeedUpateThreadId(SQLiteDatabase db, String where, String[] whereArgs) {
+        if (where == null) {
+            where = "";
+        } else {
+            where = "WHERE (" + where + ")";
+        }
+        ArrayList<Integer> threadIdList = new ArrayList<Integer>();
+        
+        String query = "SELECT _id FROM threads WHERE _id IN " +
+                       "(SELECT DISTINCT thread_id FROM sms " + where + ")";
+
+        Cursor c = db.rawQuery(query, whereArgs);
+        if (c != null) 
+        {    
+            if (c.getCount() <= 0)
+            {
+                c.close();
+                return null;
+            }
+            while (c.moveToNext()) 
+            {
+                int threadId = c.getInt(0);
+                threadIdList.add(threadId);
+            }
+            c.close();
+            return threadIdList;
+        }
+        else
+        {
+            return null;
+        }
+    }
+
+    public static void updateThreadsList(SQLiteDatabase db, ArrayList<Integer> threadIdList){
+        if (threadIdList != null && threadIdList.size() > 0) 
+        {
+            for (Integer id : threadIdList) 
+            {
+                updateThread(db, id);
+            }
+        }
+        // remove orphaned threads
+        db.delete("threads",
+                "_id NOT IN (SELECT DISTINCT thread_id FROM sms " +               
+                "UNION SELECT DISTINCT thread_id FROM pdu)", null);
+                
     }
 
     public static int deleteOneSms(SQLiteDatabase db, int message_id) {
