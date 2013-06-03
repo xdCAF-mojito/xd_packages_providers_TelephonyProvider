@@ -400,7 +400,7 @@ public class MmsSmsProvider extends ContentProvider {
                         sortOrder);
                 break;
             case URI_SEARCH_SUGGEST: {
-			    /*
+           /*
                 SEARCH_STRING[0] = uri.getQueryParameter("pattern") + '*' ;
 
                 // find the words which match the pattern using the snippet function.  The
@@ -449,7 +449,7 @@ public class MmsSmsProvider extends ContentProvider {
                 break;
             }
             case URI_SEARCH: {
-			    /*
+           /*
                 if (       sortOrder != null
                         || selection != null
                         || selectionArgs != null
@@ -467,7 +467,7 @@ public class MmsSmsProvider extends ContentProvider {
                     Log.e(LOG_TAG, "got exception: " + ex.toString());
                 }
                 */
-				cursor = myGetSearchMessages(uri,db);
+                cursor = myGetSearchMessages(uri,db);
                 break;
             }
             case URI_SEARCH_MESSAGE:
@@ -715,9 +715,14 @@ public class MmsSmsProvider extends ContentProvider {
         if (!isPhoneNumber) {
             selectionArgs = new String[] { refinedAddress };
         } else {
-            selection += " OR PHONE_NUMBERS_EQUAL(address, ?, " +
-                        (mUseStrictPhoneNumberComparation ? 1 : 0) + ")";
-            selectionArgs = new String[] { refinedAddress, refinedAddress };
+            Matcher fetionMatch = Patterns.FETION.matcher(address);
+            if ( fetionMatch.matches()) {
+                selectionArgs = new String[] { refinedAddress };
+            } else {
+                selection += " OR PHONE_NUMBERS_EQUAL(address, ?, " +
+                            (mUseStrictPhoneNumberComparation ? 1 : 0) + ")";
+                selectionArgs = new String[] { refinedAddress, refinedAddress };
+            }
         }
 
         Cursor cursor = null;
@@ -1376,6 +1381,7 @@ public class MmsSmsProvider extends ContentProvider {
                 "%s UNION %s  ORDER BY date DESC",
                 smsQuery,
                 mmsQuery);
+
         if (searchMode == SEARCH_MODE_CONTENT || (searchMode == SEARCH_MODE_NUMBER && matchWhole == 0))
         {
             return db.rawQuery(rawQuery, new String[] { searchString, searchString });    
