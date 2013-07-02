@@ -152,7 +152,8 @@ public class TelephonyProvider extends ContentProvider
                     "mvno_type TEXT," +
                     "mvno_match_data TEXT," +
                     "read_only BOOLEAN DEFAULT 0," +
-                    "ppp_number TEXT);");
+                    "ppp_number TEXT," +
+                    "localized_name TEXT);");
 
             initDatabase(db);
         }
@@ -274,6 +275,8 @@ public class TelephonyProvider extends ContentProvider
             map.put(Telephony.Carriers.SERVER, parser.getAttributeValue(null, "server"));
             map.put(Telephony.Carriers.PASSWORD, parser.getAttributeValue(null, "password"));
             map.put(Telephony.Carriers.PPP_NUMBER, parser.getAttributeValue(null, "ppp_number"));
+            map.put(Telephony.Carriers.LOCALIZED_NAME,
+                    parser.getAttributeValue(null, "localized_name"));
 
             // do not add NULL to the map so that insert() will set the default value
             String proxy = parser.getAttributeValue(null, "proxy");
@@ -633,6 +636,9 @@ public class TelephonyProvider extends ContentProvider
 
                 if (!values.containsKey(Telephony.Carriers.READ_ONLY)) {
                     values.put(Telephony.Carriers.READ_ONLY, false);
+                }
+                if (!values.containsKey(Telephony.Carriers.LOCALIZED_NAME)) {
+                    values.put(Telephony.Carriers.LOCALIZED_NAME, "");
                 }
 
                 long rowID = db.insert(CARRIERS_TABLE, null, values);
