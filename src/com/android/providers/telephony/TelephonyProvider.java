@@ -73,6 +73,8 @@ public class TelephonyProvider extends ContentProvider
 
     private static final String PARTNER_APNS_PATH = "etc/apns-conf.xml";
 
+    private final static String PPP_NUMBER = "PPP_number";
+
     private static final UriMatcher s_urlMatcher = new UriMatcher(UriMatcher.NO_MATCH);
 
     private static final ContentValues s_currentNullMap;
@@ -149,7 +151,8 @@ public class TelephonyProvider extends ContentProvider
                     "roaming_protocol TEXT," +
                     "carrier_enabled BOOLEAN," +
                     "bearer INTEGER," +
-                    "read_only BOOLEAN DEFAULT 0);");
+                    "read_only BOOLEAN DEFAULT 0," +
+                    "PPP_number TEXT);");
 
             initDatabase(db);
         }
@@ -268,6 +271,7 @@ public class TelephonyProvider extends ContentProvider
             map.put(Telephony.Carriers.USER, parser.getAttributeValue(null, "user"));
             map.put(Telephony.Carriers.SERVER, parser.getAttributeValue(null, "server"));
             map.put(Telephony.Carriers.PASSWORD, parser.getAttributeValue(null, "password"));
+            map.put(PPP_NUMBER, parser.getAttributeValue(null, "PPP_number"));
 
             // do not add NULL to the map so that insert() will set the default value
             String proxy = parser.getAttributeValue(null, "proxy");
@@ -369,11 +373,9 @@ public class TelephonyProvider extends ContentProvider
             if (row.containsKey(Telephony.Carriers.BEARER) == false) {
                 row.put(Telephony.Carriers.BEARER, 0);
             }
-
             if (row.containsKey(Telephony.Carriers.READ_ONLY) == false) {
                 row.put(Telephony.Carriers.READ_ONLY, false);
             }
-
             db.insert(CARRIERS_TABLE, null, row);
         }
     }
