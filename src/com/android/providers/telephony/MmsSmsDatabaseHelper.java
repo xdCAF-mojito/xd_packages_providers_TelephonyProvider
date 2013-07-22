@@ -215,7 +215,7 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
     private static boolean sFakeLowStorageTest = false;     // for testing only
 
     static final String DATABASE_NAME = "mmssms.db";
-    static final int DATABASE_VERSION = 58;
+    static final int DATABASE_VERSION = 59;
     private final Context mContext;
     private LowStorageMonitor mLowStorageMonitor;
 
@@ -870,6 +870,26 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                    "reference_number INTEGER," +
                    "action TEXT," +
                    "data TEXT);");
+
+        /**
+         * This table is used to store messages read from SIM card
+         */
+        db.execSQL("CREATE TABLE iccsms (" +
+                   "_id INTEGER PRIMARY KEY," +
+                   "service_center_address TEXT," +
+                   "address TEXT," +
+                   "message_class TEXT DEFAULT UNKNOWN," +
+                   "body TEXT," +
+                   "date INTEGER," +
+                   "status INTEGER DEFAULT -1," +
+                   "index_on_icc INTEGER," +
+                   "is_status_report INTEGER," +
+                   "transport_type TEXT DEFAULT sms," +
+                   "type INTEGER," +
+                   "locked INTEGER DEFAULT 0,"+
+                   "error_code INTEGER DEFAULT 0,"+
+                   "sub_id INTEGER DEFAULT 0,"+
+                   "status_on_icc INTEGER);");
     }
 
     private void createCommonTables(SQLiteDatabase db) {
@@ -1292,6 +1312,23 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
             }finally{
                 db.endTransaction();
             }
+            // fall through
+        case 58:
+            if (currentVersion <= 58) {
+                return;
+            }
+
+            db.beginTransaction();
+            try {
+                upgradeDatabaseToVersion59(db);
+                db.setTransactionSuccessful();
+            } catch (Throwable ex) {
+                Log.e(TAG, ex.getMessage(), ex);
+                break;
+            } finally {
+                db.endTransaction();
+            }
+            return;
         }
 
         Log.e(TAG, "Destroying all old data.");
@@ -1307,6 +1344,7 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
         db.execSQL("DROP TABLE IF EXISTS threads");
         db.execSQL("DROP TABLE IF EXISTS " + MmsSmsProvider.TABLE_PENDING_MSG);
         db.execSQL("DROP TABLE IF EXISTS sms");
+        db.execSQL("DROP TABLE IF EXISTS iccsms");
         db.execSQL("DROP TABLE IF EXISTS raw");
         db.execSQL("DROP TABLE IF EXISTS attachments");
         db.execSQL("DROP TABLE IF EXISTS thread_ids");
@@ -1494,6 +1532,11 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
 
     private void upgradeDatabaseToVersion58(SQLiteDatabase db) {
         db.execSQL("ALTER TABLE sms ADD COLUMN " + Sms.PRIORITY + " INTEGER DEFAULT -1");
+    }
+
+    private void upgradeDatabaseToVersion59(SQLiteDatabase db) {
+        // Add 'sub_id' column to pdu table.
+        db.execSQL("ALTER TABLE pdu ADD COLUMN " + Mms.SUB_ID + " INTEGER DEFAULT 0");
     }
 
     @Override
