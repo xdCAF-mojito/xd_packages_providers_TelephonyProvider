@@ -173,8 +173,8 @@ public class MmsSmsProvider extends ContentProvider {
     private static final String[] EMPTY_STRING_ARRAY = new String[0];
 
     private static final String[] SEARCH_STRING = new String[1];
-    private static final String SEARCH_QUERY = "SELECT snippet(words, '', ' ', '', 1, 1) as " +
-            "snippet FROM words WHERE index_text MATCH ? ORDER BY snippet LIMIT 50;";
+    private static final String SEARCH_QUERY = "SELECT index_text as snippet FROM " +
+            "words WHERE index_text like '%%%s%%' ORDER BY snippet LIMIT 50;";
 
     private static final String SMS_CONVERSATION_CONSTRAINT = "(" +
             Sms.TYPE + " != " + Sms.MESSAGE_TYPE_DRAFT + ")";
@@ -188,7 +188,7 @@ public class MmsSmsProvider extends ContentProvider {
     // Search on the words table but return the rows from the corresponding sms table
     private static final String SMS_QUERY =
             "SELECT sms._id AS _id,thread_id,address,body,date,date_sent,index_text,words._id " +
-            "FROM sms,words WHERE (index_text MATCH ? " +
+            "FROM sms,words WHERE (index_text LIKE ? " +
             "AND sms._id=words.source_id AND words.table_to_use=1)";
 
     // Search on the words table but return the rows from the corresponding parts table
@@ -199,7 +199,7 @@ public class MmsSmsProvider extends ContentProvider {
             "(addr.msg_id=pdu._id) AND " +
             "(addr.type=" + PduHeaders.TO + ") AND " +
             "(part.ct='text/plain') AND " +
-            "(index_text MATCH ?) AND " +
+            "(index_text LIKE ?) AND " +
             "(part._id = words.source_id) AND " +
             "(words.table_to_use=2))";
 
@@ -360,8 +360,8 @@ public class MmsSmsProvider extends ContentProvider {
                         sortOrder);
                 break;
             case URI_SEARCH_SUGGEST: {
-                SEARCH_STRING[0] = uri.getQueryParameter("pattern") + '*' ;
-
+                SEARCH_STRING[0] = uri.getQueryParameter("pattern");
+                String query = String.format(SEARCH_QUERY, SEARCH_STRING[0]);
                 // find the words which match the pattern using the snippet function.  The
                 // snippet function parameters mainly describe how to format the result.
                 // See http://www.sqlite.org/fts3.html#section_4_2 for details.
@@ -374,7 +374,7 @@ public class MmsSmsProvider extends ContentProvider {
                             "with this query");
                 }
 
-                cursor = db.rawQuery(SEARCH_QUERY, SEARCH_STRING);
+                cursor = db.rawQuery(query, null);
                 break;
             }
             case URI_MESSAGE_ID_TO_THREAD: {
@@ -415,7 +415,7 @@ public class MmsSmsProvider extends ContentProvider {
                             "with this query");
                 }
 
-                String searchString = uri.getQueryParameter("pattern") + "*";
+                String searchString = "%" + uri.getQueryParameter("pattern") + "%";
 
                 try {
                     cursor = db.rawQuery(SMS_MMS_QUERY, new String[] { searchString, searchString });
