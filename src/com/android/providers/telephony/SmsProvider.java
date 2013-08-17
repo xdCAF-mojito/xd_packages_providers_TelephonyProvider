@@ -845,7 +845,8 @@ public class SmsProvider extends ContentProvider {
      * Insert the message at index from SIM.  Return the Uri.
      */
     private Uri insertSmsToCard(ContentValues values, int subscription) {
-        ContentValues modValues = new ContentValues(values);
+        ContentValues modValues = new ContentValues(values.size() + 1); //add status values
+        modValues.putAll(values);
         Uri iccUri = ICC_URI;
 
         if (MSimTelephonyManager.getDefault().isMultiSimEnabled()) {
@@ -966,7 +967,8 @@ public class SmsProvider extends ContentProvider {
             bo.write(smsPdu, 0, smsPdu.length);
 
             modValues.remove(Sms.READ);
-            modValues.put("status_on_icc", status);
+            modValues.put("status", status);
+            modValues.put("status_on_icc", STATUS_ON_SIM_READ);
             insertMessageToIccDatabase(cmgwIndex, modValues, subId);
 
             if ((validIccSmsCount + 1) == iccSmsCountAll) {
