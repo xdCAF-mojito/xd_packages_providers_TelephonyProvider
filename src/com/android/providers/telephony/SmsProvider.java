@@ -968,7 +968,7 @@ public class SmsProvider extends ContentProvider {
 
             modValues.remove(Sms.READ);
             modValues.put("status", status);
-            modValues.put("status_on_icc", STATUS_ON_SIM_READ);
+            modValues.put("status_on_icc", status);
             insertMessageToIccDatabase(cmgwIndex, modValues, subId);
 
             if ((validIccSmsCount + 1) == iccSmsCountAll) {
