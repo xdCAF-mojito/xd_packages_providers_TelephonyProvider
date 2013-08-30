@@ -885,11 +885,15 @@ public class SmsProvider extends ContentProvider {
 
         Long date = values.getAsLong(Sms.DATE);
         String body = values.getAsString(Sms.BODY);
-        int type = values.getAsInteger(Sms.TYPE);
+        Integer typeVal = values.getAsInteger(Sms.TYPE);
+        int type = (typeVal != null) ? typeVal.intValue() : Sms.MESSAGE_TYPE_INBOX;
         String address = values.getAsString(Sms.ADDRESS);
-        int read = values.getAsInteger(Sms.READ);
+        Integer readVal = values.getAsInteger(Sms.READ);
+        int read = (readVal != null) ? readVal.intValue() : 0;
         // -1 for SUB_INVALID , 0 for SUB1, 1 for SUB2
-        int subId = values.getAsInteger(Sms.SUB_ID);
+        Integer subIdVal = values.getAsInteger(Sms.SUB_ID);
+        int subId = (subIdVal != null) ? subIdVal.intValue() : SUB_INVALID;
+        Log.d(TAG, "insertSmsToCard: type: " + typeVal + " read:" + readVal + " sub:" + subIdVal);
 
         try {
             byte[] smsPdu = null;
@@ -948,15 +952,27 @@ public class SmsProvider extends ContentProvider {
             }
 
             int cmgwIndex = -1;
-            if (MSimTelephonyManager.getDefault().isMultiSimEnabled()) {
-                cmgwIndex = MSimSmsManager.getDefault().copyMessageToIccGetEfIndex(null,
-                        smsPdu, status, subId);
+            Boolean needCardUpdate = values.getAsBoolean("write_to_card");
+            //Remove the write_to_card content value after reading as it
+            //should not be added in db.
+            modValues.remove("write_to_card");
+            //Write to card only if it is needed.For MT Class2 SMS , Mms app will
+            //send insert with write_to_card as false.
+            if (needCardUpdate == null || needCardUpdate.booleanValue() == true) {
+                if (MSimTelephonyManager.getDefault().isMultiSimEnabled()) {
+                    cmgwIndex = MSimSmsManager.getDefault().copyMessageToIccGetEfIndex(null,
+                            smsPdu, status, subId);
+                } else {
+                    cmgwIndex = SmsManager.getDefault().copyMessageToIccGetEfIndex(null,
+                            smsPdu, status);
+                }
+                Log.d(TAG, "insertSmsToCard: cmgwIndex = " + cmgwIndex);
             } else {
-                cmgwIndex = SmsManager.getDefault().copyMessageToIccGetEfIndex(null,
-                        smsPdu, status);
+                Integer iccIndex = values.getAsInteger("index_on_icc");
+                if (iccIndex != null) cmgwIndex = iccIndex.intValue();
+                Log.d(TAG, "insertSmsToCard: index on SIM from message = " + iccIndex);
             }
 
-            Log.d(TAG, "insertSmsToCard: cmgwIndex = " + cmgwIndex);
             if (cmgwIndex < 0) {
                 return null;
             }
@@ -977,13 +993,13 @@ public class SmsProvider extends ContentProvider {
                 return Uri.parse("content://sms/sim");
             }
         } catch (NumberFormatException exception) {
-                throw new IllegalArgumentException("Bad SMS SIM ID: ");
+            throw new IllegalArgumentException("Bad SMS SIM ID: ");
         } finally {
-                ContentResolver cr = getContext().getContentResolver();
-                cr.notifyChange(iccUri, null);
-                cr.notifyChange(ICC_SMS_URI, null);
+            ContentResolver cr = getContext().getContentResolver();
+            cr.notifyChange(iccUri, null);
+            cr.notifyChange(ICC_SMS_URI, null);
         }
-   }
+    }
 
     private byte[] formatDateToPduGSM(Time then) {
         byte tArr[];
