@@ -33,6 +33,7 @@ import android.database.sqlite.SQLiteQueryBuilder;
 import android.net.Uri;
 import android.os.Environment;
 import android.os.FileUtils;
+import android.os.SystemProperties;
 import android.provider.Telephony;
 import android.telephony.MSimTelephonyManager;
 import android.telephony.TelephonyManager;
@@ -78,6 +79,10 @@ public class TelephonyProvider extends ContentProvider
     private static final String APN_CONFIG_CHECKSUM = "apn_conf_checksum";
 
     private static final String PARTNER_APNS_PATH = "etc/apns-conf.xml";
+
+    private static final String NUMERIC_MATCH_REGEX = "(numeric *= *'[0-9]+')";
+    private static final String NUMERIC_ADD_DEFAULT_REGEX = "\\($1 or numeric = '000000'\\)";
+    private static final String PROPERTY_ENABLE_DEFAULT_APN = "persist.env.settings.defaultapn";
 
     private static final UriMatcher s_urlMatcher = new UriMatcher(UriMatcher.NO_MATCH);
 
@@ -641,6 +646,20 @@ public class TelephonyProvider extends ContentProvider
             ret = qb.query(db, projectionIn, selection, selectionArgs, null, null, sort);
         } catch (SQLException e) {
             Log.e(TAG, "got exception when querying: " + e);
+        }
+        if (SystemProperties.getBoolean(PROPERTY_ENABLE_DEFAULT_APN, false)) {
+            if (ret !=null && ret.getCount() == 0) {
+                String newSelection = null;
+                if (selection != null) {
+                    newSelection = selection.replaceAll(NUMERIC_MATCH_REGEX,
+                            NUMERIC_ADD_DEFAULT_REGEX);
+                }
+                try {
+                    ret = qb.query(db, projectionIn, newSelection, selectionArgs, null, null, sort);
+                } catch (SQLException e) {
+                    Log.e(TAG, "got exception when querying: " + e);
+                }
+            }
         }
         if (ret != null)
             ret.setNotificationUri(getContext().getContentResolver(), url);
