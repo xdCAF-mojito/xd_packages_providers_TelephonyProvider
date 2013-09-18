@@ -1472,6 +1472,9 @@ public class MmsSmsProvider extends ContentProvider {
                         "_id NOT IN (SELECT DISTINCT thread_id FROM sms where thread_id NOT NULL " +
                         "UNION SELECT DISTINCT thread_id FROM pdu where thread_id NOT NULL)", null);
                 break;
+            case URI_MAILBOX_MESSAGES:
+                affectedRows = deleteMailBoxMessages(uri, selection, selectionArgs);
+                break;
             default:
                 throw new UnsupportedOperationException(NO_DELETES_INSERTS_OR_UPDATES + uri);
         }
@@ -1480,6 +1483,20 @@ public class MmsSmsProvider extends ContentProvider {
             context.getContentResolver().notifyChange(MmsSms.CONTENT_URI, null);
         }
         return affectedRows;
+    }
+
+    /**
+     * Delete the MailBox messages with the given message box type.
+     */
+    private int deleteMailBoxMessages(Uri uri, String selection, String[] selectionArgs) {
+        String boxType = uri.getLastPathSegment();
+
+        SQLiteDatabase db = mOpenHelper.getWritableDatabase();
+        String mmsSelection = concatSelections(selection, "msg_box = " + boxType);
+        String smsSelection = concatSelections(selection, "type = " + boxType);
+        return MmsProvider.deleteMessages(getContext(), db, mmsSelection,
+                                          selectionArgs, uri)
+                + db.delete("sms", smsSelection, selectionArgs);
     }
 
     /**
