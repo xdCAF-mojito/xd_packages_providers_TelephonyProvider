@@ -37,6 +37,7 @@ import android.os.SystemProperties;
 import android.provider.Telephony;
 import android.telephony.MSimTelephonyManager;
 import android.telephony.TelephonyManager;
+import android.telephony.MSimTelephonyManager;
 import android.util.Log;
 import android.util.Xml;
 
@@ -46,6 +47,8 @@ import com.android.internal.telephony.Phone;
 import com.android.internal.telephony.PhoneConstants;
 import com.android.internal.telephony.TelephonyProperties;
 import com.android.internal.util.XmlUtils;
+import com.android.internal.telephony.MSimConstants;
+import com.android.internal.telephony.TelephonyProperties;
 
 import org.xmlpull.v1.XmlPullParser;
 import org.xmlpull.v1.XmlPullParserException;
@@ -83,6 +86,11 @@ public class TelephonyProvider extends ContentProvider
     private static final String NUMERIC_MATCH_REGEX = "(numeric *= *'[0-9]+')";
     private static final String NUMERIC_ADD_DEFAULT_REGEX = "\\($1 or numeric = '000000'\\)";
     private static final String PROPERTY_ENABLE_DEFAULT_APN = "persist.env.settings.defaultapn";
+
+    private static final String NUMERIC_MATCH_REGEX_VMCCMNC = "(numeric *= *[',\"][0-9]+[',\"])";
+    private static final String NUMERIC_ADD_VMCCMNC_REGEX_PT1 = "\\($1 and \\(v_mccmnc " +
+        "= '000000' or v_mccmnc = '";
+    private static final String PROPERTY_ENABLE_VMCCMNC = "persist.env.settings.vmccmnc";
 
     private static final UriMatcher s_urlMatcher = new UriMatcher(UriMatcher.NO_MATCH);
 
@@ -165,7 +173,8 @@ public class TelephonyProvider extends ContentProvider
                     "read_only BOOLEAN DEFAULT 0," +
                     "ppp_number TEXT," +
                     "localized_name TEXT," +
-                    "preferred BOOLEAN DEFAULT 0);");
+                    "preferred BOOLEAN DEFAULT 0," +
+                    "v_mccmnc TEXT);");
 
             initDatabase(db);
         }
@@ -356,6 +365,11 @@ public class TelephonyProvider extends ContentProvider
             if (preferred != null) {
                 map.put(Telephony.Carriers.PREFERRED,  Boolean.parseBoolean(preferred));
             }
+
+            String v_mccmnc = parser.getAttributeValue(null, "v_mccmnc");
+            if (v_mccmnc != null) {
+                map.put(Telephony.Carriers.V_MCCMNC, v_mccmnc);
+            }
             return map;
         }
 
@@ -423,6 +437,10 @@ public class TelephonyProvider extends ContentProvider
 
             if (row.containsKey(Telephony.Carriers.PREFERRED) == false) {
                 row.put(Telephony.Carriers.PREFERRED, false);
+            }
+
+            if (row.containsKey(Telephony.Carriers.V_MCCMNC) == false) {
+                row.put(Telephony.Carriers.V_MCCMNC, "000000");
             }
             db.insert(CARRIERS_TABLE, null, row);
         }
@@ -643,7 +661,32 @@ public class TelephonyProvider extends ContentProvider
         SQLiteDatabase db = mOpenHelper.getReadableDatabase();
         Cursor ret = null;
         try {
-            ret = qb.query(db, projectionIn, selection, selectionArgs, null, null, sort);
+            if (SystemProperties.getBoolean(PROPERTY_ENABLE_VMCCMNC, false)) {
+                // Replaces WHERE clause from
+                //  numeric = 'xxxxxx'
+                // to
+                //  (numeric = 'xxxxxx' and (v_mccmnc = '000000' or v_mccmnc = 'yyyyyy'))
+                String newSelection = null;
+                if (selection != null) {
+                    String operatorNumeric = null;
+                    if (MSimTelephonyManager.getDefault().isMultiSimEnabled()) {
+                        operatorNumeric = MSimTelephonyManager.getDefault().getNetworkOperator(
+                                MSimTelephonyManager.getDefault().getPreferredDataSubscription());
+                    } else {
+                        operatorNumeric = TelephonyManager.getDefault().getNetworkOperator();
+                    }
+
+                    operatorNumeric = (operatorNumeric == null) ? "" : operatorNumeric;
+                    String replacement = NUMERIC_ADD_VMCCMNC_REGEX_PT1 + operatorNumeric
+                        + "'\\)\\)";
+                    newSelection = selection.replaceAll(NUMERIC_MATCH_REGEX_VMCCMNC,
+                            replacement);
+                    Log.d(TAG, "Selection has been replaced to: " + newSelection);
+                }
+                ret = qb.query(db, projectionIn, newSelection, selectionArgs, null, null, sort);
+            } else {
+                ret = qb.query(db, projectionIn, selection, selectionArgs, null, null, sort);
+            }
         } catch (SQLException e) {
             Log.e(TAG, "got exception when querying: " + e);
         }
@@ -768,6 +811,10 @@ public class TelephonyProvider extends ContentProvider
                 }
                 if (!values.containsKey(Telephony.Carriers.LOCALIZED_NAME)) {
                     values.put(Telephony.Carriers.LOCALIZED_NAME, "");
+                }
+
+                if (!values.containsKey(Telephony.Carriers.V_MCCMNC)) {
+                    values.put(Telephony.Carriers.V_MCCMNC, "000000");
                 }
 
                 long rowID = db.insert(CARRIERS_TABLE, null, values);
