@@ -798,6 +798,12 @@ public class MmsProvider extends ContentProvider {
             return null;
         }
 
+        //In CT mode the getApplicationInfo().dataDir is different from other mode.
+        //And it always mismatch the file path, so it will return null when openFile.
+        //Then App can not process successfully. We can remove dir check in here
+        //to give a workaround solution for CR542383. We will revert the change until
+        //we find out the root cause.
+        /*
         // Verify that the _data path points to mms data
         Cursor c = query(uri, new String[]{"_data"}, null, null, null);
         int count = (c != null) ? c.getCount() : 0;
@@ -830,7 +836,7 @@ public class MmsProvider extends ContentProvider {
         } catch (IOException e) {
             return null;
         }
-
+        */
         return openFileHelper(uri, mode);
     }
 
