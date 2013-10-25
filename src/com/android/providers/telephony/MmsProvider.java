@@ -62,10 +62,12 @@ public class MmsProvider extends ContentProvider {
     static final String TABLE_DRM  = "drm";
     static final String TABLE_WORDS = "words";
 
+    // Define the max length of file name
+    final static int MAX_FILE_NAME_LENGTH = 30;
 
     @Override
     public boolean onCreate() {
-        setAppOps(AppOpsManager.OP_READ_SMS, AppOpsManager.OP_WRITE_SMS);
+        setAppOps(AppOpsManager.OP_READ_MMS, AppOpsManager.OP_WRITE_MMS);
         mOpenHelper = MmsSmsDatabaseHelper.getInstance(getContext());
         return true;
     }
@@ -403,8 +405,10 @@ public class MmsProvider extends ContentProvider {
                 // Use the filename if possible, otherwise use the current time as the name.
                 String contentLocation = values.getAsString("cl");
                 if (!TextUtils.isEmpty(contentLocation)) {
-                    File f = new File(contentLocation);
-                    contentLocation = "_" + f.getName();
+                    // In Android, the name of a new file has it's limit.
+                    // We must limit the part file name length.
+                    // Sub 30 words so the name length can't over limit.
+                    contentLocation = "_" + getFileName(contentLocation);
                 } else {
                     contentLocation = "";
                 }
@@ -509,6 +513,15 @@ public class MmsProvider extends ContentProvider {
             notifyChange();
         }
         return res;
+    }
+
+    private String getFileName(String fileLocation) {
+        File f = new File(fileLocation);
+        String fileName = f.getName();
+        if (fileName.length() >= MAX_FILE_NAME_LENGTH) {
+            fileName = fileName.substring(0, MAX_FILE_NAME_LENGTH);
+        }
+        return fileName;
     }
 
     private int getMessageBoxByMatch(int match) {
@@ -785,6 +798,12 @@ public class MmsProvider extends ContentProvider {
             return null;
         }
 
+        //In CT mode the getApplicationInfo().dataDir is different from other mode.
+        //And it always mismatch the file path, so it will return null when openFile.
+        //Then App can not process successfully. We can remove dir check in here
+        //to give a workaround solution for CR542383. We will revert the change until
+        //we find out the root cause.
+        /*
         // Verify that the _data path points to mms data
         Cursor c = query(uri, new String[]{"_data"}, null, null, null);
         int count = (c != null) ? c.getCount() : 0;
@@ -817,7 +836,7 @@ public class MmsProvider extends ContentProvider {
         } catch (IOException e) {
             return null;
         }
-
+        */
         return openFileHelper(uri, mode);
     }
 
