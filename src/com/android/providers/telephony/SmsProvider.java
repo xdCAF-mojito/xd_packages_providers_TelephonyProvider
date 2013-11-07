@@ -491,8 +491,12 @@ public class SmsProvider extends ContentProvider {
                 for (int i = 0; i < count; i++) {
                     SmsMessage message = messages.get(i);
                     if (message != null) {
-                        //cursor.addRow(convertIccToSms(message, i, subscription));
-                        insertSmsMessageToIccDatabase(message, subscription);
+                        try {
+                            insertSmsMessageToIccDatabase(message, subscription);
+                        } catch (Exception e) {
+                            Log.e(TAG, "Insert IccDatabase failed: " + e);
+                            continue;
+                        }
                     }
                 }
             }
