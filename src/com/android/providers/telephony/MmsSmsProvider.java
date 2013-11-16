@@ -19,6 +19,7 @@ package com.android.providers.telephony;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 import android.app.AppOpsManager;
@@ -1682,7 +1683,7 @@ public class MmsSmsProvider extends ContentProvider {
                     "SELECT %s FROM sms WHERE (body LIKE ? ESCAPE '" +
                             SEARCH_ESCAPE_CHARACTER + "') ",
                     SMS_PROJECTION);
-            mmsQuery = String.format(
+            mmsQuery = String.format(Locale.US,
                     "SELECT %s FROM pdu,part,addr WHERE ((part.mid=pdu._id) AND " +
                     "(addr.msg_id=pdu._id) AND " +
                     "(addr.type=%d) AND " +
@@ -1705,7 +1706,7 @@ public class MmsSmsProvider extends ContentProvider {
                     SMS_PROJECTION,
                     threadIdString);
 
-            mmsQuery = String.format(
+            mmsQuery = String.format(Locale.US,
                     "SELECT %s FROM pdu,addr WHERE (" +
                     "(thread_id in (%s)) AND " +
                     "(addr.msg_id = pdu._id) AND " +
