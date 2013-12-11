@@ -60,7 +60,7 @@ public class TelephonyProvider extends ContentProvider
     private static final String DATABASE_NAME = "telephony.db";
     private static final boolean DBG = true;
 
-    private static final int DATABASE_VERSION = 8 << 16;
+    private static final int DATABASE_VERSION = 9 << 16;
     private static final int URL_TELEPHONY = 1;
     private static final int URL_CURRENT = 2;
     private static final int URL_ID = 3;
@@ -250,6 +250,24 @@ public class TelephonyProvider extends ContentProvider
                 db.execSQL("ALTER TABLE " + CARRIERS_TABLE +
                         " ADD COLUMN mvno_match_data TEXT DEFAULT '';");
                 oldVersion = 8 << 16 | 6;
+            }
+            if (oldVersion < (9 << 16 | 6)) {
+                // Add preferred field to the APN.
+                // The XML file does not change.
+                try {
+                    db.execSQL("ALTER TABLE " + CARRIERS_TABLE +
+                            " ADD COLUMN preferred BOOLEAN DEFAULT 0;");
+                    oldVersion = 9 << 16 | 6;
+                } catch (SQLException e) {
+                    // Original implementation for preferred apn feature
+                    // didn't include new version for database
+                    // Consequently we can have version 8 database with and
+                    // without preferred column
+                    // Hence, this operation can result in exception
+                    // (if column is already there)
+                    // Just log it
+                    Log.e(TAG, "Exception adding preferred column to database. ", e);
+                }
             }
         }
 
