@@ -1778,7 +1778,7 @@ public class MmsSmsProvider extends ContentProvider {
             if (i != 0) {
                 buffer.append(',');
             }
-            buffer.append(getThreadId(String.valueOf(addrIds[i])));
+            buffer.append(getThreadIds(String.valueOf(addrIds[i])));
         }
         return buffer.toString();
     }
@@ -1842,6 +1842,47 @@ public class MmsSmsProvider extends ContentProvider {
             if (cursor.moveToFirst()) {
                 resultString = String.valueOf(cursor.getLong(0));
             }
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+
+        return resultString;
+    }
+
+    private synchronized String getThreadIds(String recipientIds) {
+        String THREAD_QUERY = "SELECT _id FROM threads " +
+                "WHERE recipient_ids = ? or recipient_ids like '" + recipientIds
+                + " %' or recipient_ids like '% " + recipientIds
+                + "' or recipient_ids like '% " + recipientIds + " %'";
+        String resultString = "0";
+        StringBuilder buffer = new StringBuilder();
+
+        if (DEBUG) {
+            Log.v(LOG_TAG, "getThreadId THREAD_QUERY: " + THREAD_QUERY +
+                    ", recipientIds=" + recipientIds);
+        }
+        Cursor cursor = null;
+        try {
+            SQLiteDatabase db = mOpenHelper.getReadableDatabase();
+            cursor = db.rawQuery(THREAD_QUERY, new String[] {
+                recipientIds
+            });
+
+            if (cursor == null || cursor.getCount() == 0) {
+                return resultString;
+            }
+            int i = 0;
+            while (cursor.moveToNext()) {
+                if (i != 0) {
+                    buffer.append(',');
+                }
+                buffer.append(String.valueOf(cursor.getLong(0)));
+                i++;
+            }
+            resultString = buffer.toString();
+
         } finally {
             if (cursor != null) {
                 cursor.close();
