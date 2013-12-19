@@ -215,7 +215,7 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
     private static boolean sFakeLowStorageTest = false;     // for testing only
 
     static final String DATABASE_NAME = "mmssms.db";
-    static final int DATABASE_VERSION = 57;
+    static final int DATABASE_VERSION = 58;
     private final Context mContext;
     private LowStorageMonitor mLowStorageMonitor;
 
@@ -839,7 +839,8 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                    "sub_id INTEGER DEFAULT 0," +   // sub_id : 0 for subscription 1
                                                    // sub_id : 1 for subscription 2
                    "error_code INTEGER DEFAULT 0," +
-                   "seen INTEGER DEFAULT 0" +
+                   "seen INTEGER DEFAULT 0," +
+                   "pri INTEGER DEFAULT -1" +
                    ");");
 
         /**
@@ -1277,6 +1278,21 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                 db.endTransaction();
             }
             return;
+        case 57:
+            if(currentVersion <=57){
+                return;
+            }
+            db.beginTransaction();
+            try{
+                upgradeDatabaseToVersion58(db);
+                db.setTransactionSuccessful();
+            }catch(Throwable ex){
+                Log.e(TAG,ex.getMessage(),ex);
+                break;
+            }finally{
+                db.endTransaction();
+            }
+            return;
         }
 
         Log.e(TAG, "Destroying all old data.");
@@ -1475,6 +1491,10 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
     private void upgradeDatabaseToVersion57(SQLiteDatabase db) {
         // Clear out bad rows, those with empty threadIds, from the pdu table.
         db.execSQL("DELETE FROM " + MmsProvider.TABLE_PDU + " WHERE " + Mms.THREAD_ID + " IS NULL");
+    }
+
+    private void upgradeDatabaseToVersion58(SQLiteDatabase db) {
+        db.execSQL("ALTER TABLE sms ADD COLUMN pri INTEGER DEFAULT -1");
     }
 
     @Override
