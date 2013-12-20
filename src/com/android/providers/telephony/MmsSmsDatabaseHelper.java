@@ -215,7 +215,7 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
     private static boolean sFakeLowStorageTest = false;     // for testing only
 
     static final String DATABASE_NAME = "mmssms.db";
-    static final int DATABASE_VERSION = 59;
+    static final int DATABASE_VERSION = 60;
     private final Context mContext;
     private LowStorageMonitor mLowStorageMonitor;
 
@@ -555,6 +555,11 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
         } catch (Exception ex) {
             Log.e(TAG, "got exception creating indices: " + ex.toString());
         }
+    }
+
+    private void createPduPartIndex(SQLiteDatabase db) {
+        db.execSQL("CREATE INDEX IF NOT EXISTS index_part ON " + MmsProvider.TABLE_PART +
+                " (mid);");
     }
 
     private void createMmsTables(SQLiteDatabase db) {
@@ -1321,6 +1326,22 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
             db.beginTransaction();
             try {
                 upgradeDatabaseToVersion59(db);
+                db.setTransactionSuccessful();
+            } catch (Throwable ex) {
+                Log.e(TAG, ex.getMessage(), ex);
+                break;
+            } finally {
+                db.endTransaction();
+            }
+            return;
+         case 59:
+            if (currentVersion <= 59) {
+                return;
+            }
+
+            db.beginTransaction();
+            try {
+                createPduPartIndex(db);
                 db.setTransactionSuccessful();
             } catch (Throwable ex) {
                 Log.e(TAG, ex.getMessage(), ex);
