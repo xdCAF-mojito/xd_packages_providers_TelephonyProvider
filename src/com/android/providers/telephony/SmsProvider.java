@@ -39,6 +39,7 @@ import android.telephony.MSimSmsManager;
 import android.telephony.MSimTelephonyManager;
 import android.telephony.SmsManager;
 import android.telephony.SmsMessage;
+import android.telephony.TelephonyManager;
 import android.text.TextUtils;
 import android.text.format.Time;
 import android.util.Log;
@@ -524,13 +525,16 @@ public class SmsProvider extends ContentProvider {
         String address = null;
         int index = smsMessage.getIndexOnIcc();
         int status = smsMessage.getStatusOnSim();
-
         int mailboxId = TextBasedSmsColumns.MESSAGE_TYPE_ALL;
         if (status == STATUS_ON_SIM_READ || status == STATUS_ON_SIM_UNREAD) {
             address = smsMessage.getDisplayOriginatingAddress();
             mailboxId = TextBasedSmsColumns.MESSAGE_TYPE_INBOX;
         } else if (status == STATUS_ON_SIM_SENT) {
-            address = smsMessage.getRecipientAddress();
+            if(isCdmaPhone(subscription)) {
+                address = smsMessage.getDisplayOriginatingAddress();
+            } else {
+                address = smsMessage.getRecipientAddress();
+            }
             mailboxId = TextBasedSmsColumns.MESSAGE_TYPE_SENT;
         } else {
             address = smsMessage.getRecipientAddress();
@@ -1472,5 +1476,17 @@ public class SmsProvider extends ContentProvider {
         sConversationProjectionMap.put(Sms.Conversations.MESSAGE_COUNT,
             "groups.msg_count AS msg_count");
         sConversationProjectionMap.put("delta", null);
+    }
+
+    private boolean isCdmaPhone(int subscription) {
+        boolean isCdmaPhone = false;
+        if(MSimTelephonyManager.getDefault().isMultiSimEnabled()) {
+            isCdmaPhone = (TelephonyManager.PHONE_TYPE_CDMA == MSimTelephonyManager.getDefault()
+                    .getCurrentPhoneType(subscription));
+        } else {
+            isCdmaPhone = (TelephonyManager.PHONE_TYPE_CDMA == TelephonyManager.getDefault()
+                    .getCurrentPhoneType());
+        }
+        return isCdmaPhone;
     }
 }
