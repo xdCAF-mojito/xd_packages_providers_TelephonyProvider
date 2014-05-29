@@ -1348,6 +1348,14 @@ public class SmsProvider extends ContentProvider {
                     //update all the messages as read in iccsms table
                     return updateMessageStatusOnIcc("-1", SUB2);
 
+            case SMS_ICC_MESSAGE:
+                int subscription  = values.getAsInteger(Sms.SUB_ID);
+                deleteAllFromIccDatabase(subscription);
+
+                Cursor cursor = getAllMessagesFromIcc(subscription);
+                notifyChange(url);
+                return cursor == null ? 0 : cursor.getCount();
+
             default:
                 throw new UnsupportedOperationException(
                         "URI " + url + " not supported");
