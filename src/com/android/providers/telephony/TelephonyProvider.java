@@ -483,6 +483,7 @@ public class TelephonyProvider extends ContentProvider
             // Check if there is an initial preferred apn
             String numeric = getOperatorNumeric(subId);
             if (numeric != null) {
+                Cursor cursor = null;
                 checkPermission();
                 try {
                     SQLiteQueryBuilder qb = new SQLiteQueryBuilder();
@@ -493,7 +494,7 @@ public class TelephonyProvider extends ContentProvider
                     where += " AND preferred = 1";
 
                     SQLiteDatabase db = mOpenHelper.getReadableDatabase();
-                    Cursor cursor = qb.query(db, new String[] {"_id"}, where,
+                    cursor = qb.query(db, new String[] {"_id"}, where,
                             null, null, null, Telephony.Carriers.DEFAULT_SORT_ORDER);
                     cursor.moveToFirst();
                     if (!cursor.isAfterLast()) {
@@ -504,6 +505,10 @@ public class TelephonyProvider extends ContentProvider
                     }
                 } catch (SQLException e) {
                     Log.e(TAG, "got exception while checking initial preferred apn: " + e);
+                } finally {
+                    if (cursor != null && !cursor.isClosed()) {
+                        cursor.close();
+                    }
                 }
             }
         }
