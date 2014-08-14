@@ -99,6 +99,7 @@ public class MmsSmsProvider extends ContentProvider {
     private static final int URI_MAILBOXS                          = 21;
     private static final int URI_MAILBOX_MESSAGES_COUNT            = 22;
     private static final int URI_UPDATE_THREAD                     = 23;
+    private static final int URI_UPDATE_THREAD_DATE                = 24;
     // Escape character
     private static final char SEARCH_ESCAPE_CHARACTER = '!';
 
@@ -355,6 +356,8 @@ public class MmsSmsProvider extends ContentProvider {
         URI_MATCHER.addURI(AUTHORITY, "threadID", URI_THREAD_ID);
 
         URI_MATCHER.addURI(AUTHORITY, "update-thread/#", URI_UPDATE_THREAD);
+
+        URI_MATCHER.addURI(AUTHORITY, "update-date", URI_UPDATE_THREAD_DATE);
 
         // Use this pattern to query the canonical address by given ID.
         URI_MATCHER.addURI(AUTHORITY, "canonical-address/#", URI_CANONICAL_ADDRESS);
@@ -1640,6 +1643,9 @@ public class MmsSmsProvider extends ContentProvider {
                 MmsSmsDatabaseHelper.updateThread(db, threadId);
                 break;
 
+            case URI_UPDATE_THREAD_DATE:
+                MmsSmsDatabaseHelper.updateThreadsDate(db, selection, selectionArgs);
+                break;
             default:
                 throw new UnsupportedOperationException(
                         NO_DELETES_INSERTS_OR_UPDATES + uri);
