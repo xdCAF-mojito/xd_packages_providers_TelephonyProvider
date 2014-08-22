@@ -215,7 +215,7 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
     private static boolean sFakeLowStorageTest = false;     // for testing only
 
     static final String DATABASE_NAME = "mmssms.db";
-    static final int DATABASE_VERSION = 58;
+    static final int DATABASE_VERSION = 61;
     private final Context mContext;
     private LowStorageMonitor mLowStorageMonitor;
 
@@ -1279,17 +1279,32 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
             }
             return;
         case 57:
-            if(currentVersion <=57){
+            if (currentVersion <= 57) {
                 return;
             }
             db.beginTransaction();
-            try{
+            try {
                 upgradeDatabaseToVersion58(db);
                 db.setTransactionSuccessful();
-            }catch(Throwable ex){
+            } catch (Throwable ex) {
                 Log.e(TAG,ex.getMessage(),ex);
                 break;
-            }finally{
+            } finally {
+                db.endTransaction();
+            }
+            return;
+        case 60:
+            if (currentVersion <= 60) {
+                return;
+            }
+            db.beginTransaction();
+            try {
+                upgradeDatabaseToVersion61(db);
+                db.setTransactionSuccessful();
+            } catch (Throwable ex) {
+                Log.e(TAG,ex.getMessage(),ex);
+                break;
+            } finally {
                 db.endTransaction();
             }
             return;
@@ -1495,6 +1510,10 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
 
     private void upgradeDatabaseToVersion58(SQLiteDatabase db) {
         db.execSQL("ALTER TABLE sms ADD COLUMN pri INTEGER DEFAULT -1");
+    }
+
+    private void upgradeDatabaseToVersion61(SQLiteDatabase db) {
+        // Do nothing
     }
 
     @Override
