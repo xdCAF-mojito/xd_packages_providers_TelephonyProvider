@@ -602,6 +602,7 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                    Mms.LOCKED + " INTEGER DEFAULT 0," +
                    Mms.SEEN + " INTEGER DEFAULT 0," +
                    Mms.TEXT_ONLY + " INTEGER DEFAULT 0," +
+                   "favourite INTEGER DEFAULT 0," +
                    Mms.SUB_ID + " INTEGER DEFAULT 0" +
                    ");");
 
@@ -829,7 +830,38 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                                                    // sub_id : 1 for subscription 2
                    "error_code INTEGER DEFAULT 0," +
                    "seen INTEGER DEFAULT 0," +
-                   "pri INTEGER DEFAULT -1" +
+                   "pri INTEGER DEFAULT -1," +
+                   "favourite INTEGER DEFAULT 0," +
+                   "rcs_message_id    TEXT,  " +
+                   "rcs_data     TEXT,   " +
+                   "rcs_filename   TEXT,      " +
+                   "rcs_filesize   LONG,  " +
+                   "rcs_mime_type   TEXT,      " +
+                   "rcs_msg_type   INTEGER DEFAULT -1,   " +
+                   "rcs_send_receive   INTEGER, " +
+                   "rcs_is_read   INTEGER, " +
+                   "rcs_msg_state   INTEGER,     " +
+                   "rcs_chat_type   INTEGER,    " +
+                   "rcs_thread_id   TEXT,       " +
+                   "rcs_conversation_id     TEXT,   " +
+                   "rcs_contribution_id   TEXT, " +
+                   "rcs_file_selector   TEXT,   " +
+                   "rcs_file_transfer_ext   TEXT," +
+                   "rcs_file_transfer_id   TEXT, " +
+                   "rcs_file_icon   TEXT,       " +
+                   "rcs_burn_flag   INTEGER,   " +
+                   "rcs_barcycle   INTEGER,    " +
+                   "rcs_header   TEXT,    " +
+                   "is_rcs   INTEGER DEFAULT -1," +
+                   "rcs_have_attach INTEGER DEFAULT -1," +
+                   "rcs_path TEXT," +
+                   "rcs_is_burn INTEGER,  "+
+                   "rcs_is_download INTEGER DEFAULT 0 ,  "+
+                   "rcs_play_time INTEGER DEFAULT 0 ,  "+
+                   "rcs_file_size INTEGER DEFAULT 0 ,  "+
+                   "rcs_id INTEGER DEFAULT -1, "+
+                   "rcs_thumb_path TEXT, " +
+                   "rcs_burn_body TEXT" +
                    ");");
 
         /**
@@ -896,7 +928,10 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                    Threads.READ + " INTEGER DEFAULT 1," +
                    Threads.TYPE + " INTEGER DEFAULT 0," +
                    Threads.ERROR + " INTEGER DEFAULT 0," +
-                   Threads.HAS_ATTACHMENT + " INTEGER DEFAULT 0);");
+                   Threads.HAS_ATTACHMENT + " INTEGER DEFAULT 0," +
+                   "top" + " INTEGER DEFAULT 0," +
+                   "top_time" + " INTEGER DEFAULT 0," +
+                   "is_group_chat" + " INTEGER DEFAULT 0);");
 
         /**
          * This table stores the queue of messages to be sent/downloaded.
@@ -1483,6 +1518,13 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
 
     private void upgradeDatabaseToVersion58(SQLiteDatabase db) {
         db.execSQL("ALTER TABLE sms ADD COLUMN pri INTEGER DEFAULT -1");
+ db.execSQL("ALTER TABLE " + MmsSmsProvider.TABLE_THREADS +" ADD COLUMN "
+                + "is_group_chat" + " INTEGER DEFAULT 0");
+
+        db.execSQL("ALTER TABLE " +"sms" +" ADD COLUMN "
+                + "favorited" + " INTEGER DEFAULT 0");
+        db.execSQL("ALTER TABLE " +"sms"+" ADD COLUMN "
+                + "rcs_message_id" + " INTEGER DEFAULT -1");
     }
 
     @Override
