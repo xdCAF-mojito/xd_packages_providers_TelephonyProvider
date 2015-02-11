@@ -100,6 +100,8 @@ public class MmsSmsProvider extends ContentProvider {
     private static final int URI_MAILBOX_MESSAGES_COUNT            = 22;
     private static final int URI_UPDATE_THREAD                     = 23;
     private static final int URI_UPDATE_THREAD_DATE                = 24;
+	private static final int URI_FAVOURITE_MESSAGES                = 25;
+    private static final int URI_UPDATE_THREAD_TOP                 = 26;
     // Escape character
     private static final char SEARCH_ESCAPE_CHARACTER = '!';
 
@@ -135,7 +137,7 @@ public class MmsSmsProvider extends ContentProvider {
     // SMS ("sms") message tables.
     private static final String[] MMS_SMS_COLUMNS =
             { BaseColumns._ID, Mms.DATE, Mms.DATE_SENT, Mms.READ, Mms.THREAD_ID,
-              Mms.LOCKED, Mms.SUB_ID };
+              Mms.LOCKED, Mms.SUB_ID,"favourite" };
 
     // These are the columns that appear only in the MMS message
     // table.
@@ -152,7 +154,10 @@ public class MmsSmsProvider extends ContentProvider {
     // table.
     private static final String[] SMS_ONLY_COLUMNS =
             { "address", "body", "person", "reply_path_present",
-              "service_center", "status", "subject", "type", "error_code" };
+              "service_center", "status", "subject", "type", "error_code", "rcs_path", "rcs_thumb_path", "is_rcs",
+            "rcs_mime_type", "rcs_msg_type", "rcs_chat_type", "favourite", "rcs_is_burn", "rcs_id",
+            "rcs_msg_state", "rcs_burn_flag", "rcs_is_download", "rcs_file_size", "rcs_play_time",
+            "rcs_burn_body","rcs_message_id","date"};
 
     // These are all the columns that appear in the "threads" table.
     private static final String[] THREADS_COLUMNS = {
@@ -270,7 +275,21 @@ public class MmsSmsProvider extends ContentProvider {
             + "group by boxname order by _id";
 
     private static final String SMS_PROJECTION = "'sms' AS transport_type, _id, thread_id,"
-            + "address, body, sub_id, date, date_sent, read, type,"
+            + "address, body,"
+            + "rcs_path ,"
+            + "rcs_thumb_path ,"
+            + "rcs_msg_type ,"
+            + "rcs_id ,"
+            + "rcs_burn_flag, "
+            + "rcs_is_burn ,"
+            + "rcs_is_download, "
+            + "rcs_msg_state, "
+            + "favourite ,"
+            + "rcs_file_size,"
+            + "rcs_play_time,"
+            + "rcs_message_id,"
+            + "rcs_chat_type,"
+	        + " sub_id, date, date_sent, read, type,"
             + "status, locked, NULL AS error_code,"
             + "NULL AS sub, NULL AS sub_cs, date, date_sent, read,"
             + "NULL as m_type,"
@@ -326,7 +345,8 @@ public class MmsSmsProvider extends ContentProvider {
         URI_MATCHER.addURI(
                 AUTHORITY, "conversations/#/recipients",
                 URI_CONVERSATIONS_RECIPIENTS);
-
+        URI_MATCHER.addURI(
+                AUTHORITY, "conversations/favourite", URI_FAVOURITE_MESSAGES);
         URI_MATCHER.addURI(
                 AUTHORITY, "conversations/#/subject",
                 URI_CONVERSATIONS_SUBJECT);
@@ -358,7 +378,7 @@ public class MmsSmsProvider extends ContentProvider {
         URI_MATCHER.addURI(AUTHORITY, "update-thread/#", URI_UPDATE_THREAD);
 
         URI_MATCHER.addURI(AUTHORITY, "update-date", URI_UPDATE_THREAD_DATE);
-
+         URI_MATCHER.addURI(AUTHORITY, "update-top", URI_UPDATE_THREAD_TOP);
         // Use this pattern to query the canonical address by given ID.
         URI_MATCHER.addURI(AUTHORITY, "canonical-address/#", URI_CANONICAL_ADDRESS);
 
@@ -438,6 +458,10 @@ public class MmsSmsProvider extends ContentProvider {
                 cursor = getConversationMessages(uri.getPathSegments().get(1), projection,
                         selection, sortOrder);
                 break;
+            case URI_FAVOURITE_MESSAGES:
+                cursor = getFavourateMessages(uri.getPathSegments().get(1), projection,
+                        selection, sortOrder);
+                break;
             case URI_MAILBOX_MESSAGES:
                 cursor = getMailboxMessages(
                         uri.getPathSegments().get(1), projection, selection,
@@ -465,8 +489,9 @@ public class MmsSmsProvider extends ContentProvider {
                 break;
             case URI_THREAD_ID:
                 List<String> recipients = uri.getQueryParameters("recipient");
+                boolean isGroupChat = "1".equals(uri.getQueryParameter("isGroupChat"));
 
-                cursor = getThreadId(recipients);
+                cursor = getThreadId(recipients, isGroupChat);
                 break;
             case URI_CANONICAL_ADDRESS: {
                 String extraSelection = "_id=" + uri.getPathSegments().get(1);
@@ -734,8 +759,8 @@ public class MmsSmsProvider extends ContentProvider {
     /**
      * Insert a record for a new thread.
      */
-    private void insertThread(String recipientIds, int numberOfRecipients) {
-        ContentValues values = new ContentValues(4);
+    private void insertThread(String recipientIds, int numberOfRecipients, boolean isGroupChat) {
+        ContentValues values = new ContentValues(5);
 
         long date = System.currentTimeMillis();
         values.put(ThreadsColumns.DATE, date - date % 1000);
@@ -744,6 +769,7 @@ public class MmsSmsProvider extends ContentProvider {
             values.put(Threads.TYPE, Threads.BROADCAST_THREAD);
         }
         values.put(ThreadsColumns.MESSAGE_COUNT, 0);
+        values.put("is_group_chat", isGroupChat ? 1 : 0);
 
         long result = mOpenHelper.getWritableDatabase().insert(TABLE_THREADS, null, values);
         Log.d(LOG_TAG, "insertThread: created new thread_id " + result +
@@ -752,6 +778,12 @@ public class MmsSmsProvider extends ContentProvider {
         getContext().getContentResolver().notifyChange(MmsSms.CONTENT_URI, null);
     }
 
+    /**
+     * Insert a record for a new thread.
+     */
+    private void insertThread(String recipientIds, int numberOfRecipients) {
+        insertThread(recipientIds, numberOfRecipients, false);
+    }
     private static final String THREAD_QUERY =
             "SELECT _id FROM threads " + "WHERE recipient_ids=?";
 
@@ -761,7 +793,7 @@ public class MmsSmsProvider extends ContentProvider {
      * one and return it.  Callers should always use
      * Threads.getThreadId to access this information.
      */
-    private synchronized Cursor getThreadId(List<String> recipients) {
+    private synchronized Cursor getThreadId(List<String> recipients, boolean isGroupChat) {
         Set<Long> addressIds = getAddressIds(recipients);
         String recipientIds = "";
 
@@ -798,7 +830,7 @@ public class MmsSmsProvider extends ContentProvider {
 
                 Log.d(LOG_TAG, "getThreadId: create new thread_id for recipients " +
                         /*recipients*/ "xxxxxxxx");
-                insertThread(recipientIds, recipients.size());
+                insertThread(recipientIds, recipients.size(), isGroupChat);
 
                 // The thread was just created, now find it and return it.
                 cursor = db.rawQuery(THREAD_QUERY, selectionArgs);
@@ -814,6 +846,16 @@ public class MmsSmsProvider extends ContentProvider {
             Log.w(LOG_TAG, "getThreadId: why is cursorCount=" + cursor.getCount());
         }
         return cursor;
+    }
+
+    /**
+     * Return the thread ID for this list of
+     * recipients IDs.  If no thread exists with this ID, create
+     * one and return it.  Callers should always use
+     * Threads.getThreadId to access this information.
+     */
+    private synchronized Cursor getThreadId(List<String> recipients) {
+        return getThreadId(recipients, false);
     }
 
     private static String concatSelections(String selection1, String selection2) {
@@ -859,7 +901,7 @@ public class MmsSmsProvider extends ContentProvider {
     private Cursor getSimpleConversations(String[] projection, String selection,
             String[] selectionArgs, String sortOrder) {
         return mOpenHelper.getReadableDatabase().query(TABLE_THREADS, projection,
-                selection, selectionArgs, null, null, " date DESC");
+                selection, selectionArgs, null, null, sortOrder /*" date DESC"*/);
     }
 
     /**
@@ -1080,6 +1122,17 @@ public class MmsSmsProvider extends ContentProvider {
         return mOpenHelper.getReadableDatabase().rawQuery(unionQuery, EMPTY_STRING_ARRAY);
     }
 
+    private Cursor getFavourateMessages(
+            String threadIdString, String[] projection, String selection,
+            String sortOrder) {
+
+        String finalSelection = concatSelections(
+                selection,  " "+"favourite = " + 1);
+
+        String unionQuery = buildConversationQuery(projection, finalSelection, sortOrder);
+
+        return mOpenHelper.getReadableDatabase().rawQuery(unionQuery, EMPTY_STRING_ARRAY);
+    }
     /**
      * Return the union of MMS and SMS messages in one mailbox.
      */
@@ -1646,6 +1699,9 @@ public class MmsSmsProvider extends ContentProvider {
             case URI_UPDATE_THREAD_DATE:
                 MmsSmsDatabaseHelper.updateThreadsDate(db, selection, selectionArgs);
                 break;
+            case URI_UPDATE_THREAD_TOP:
+                db.update("threads", values, selection, selectionArgs);
+                break;	
             default:
                 throw new UnsupportedOperationException(
                         NO_DELETES_INSERTS_OR_UPDATES + uri);
