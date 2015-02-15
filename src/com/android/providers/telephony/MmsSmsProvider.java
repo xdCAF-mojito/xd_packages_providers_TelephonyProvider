@@ -1616,11 +1616,7 @@ public class MmsSmsProvider extends ContentProvider {
             case URI_CONVERSATIONS:
                 affectedRows = MmsProvider.deleteMessages(context, db,
                                         selection, selectionArgs, uri)
-                        + db.delete("sms", selection, selectionArgs);
-                // Intentionally don't pass the selection variable to updateAllThreads.
-                // When we pass in "locked=0" there, the thread will get excluded from
-                // the selection and not get updated.
-                MmsSmsDatabaseHelper.updateAllThreads(db, null, null);
+                        + SmsProvider.deleteMessages(db, selection, selectionArgs);
                 break;
             case URI_OBSOLETE_THREADS:
                 affectedRows = db.delete(TABLE_THREADS,
