@@ -47,6 +47,7 @@ import com.android.internal.telephony.MSimConstants;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 
 public class SmsProvider extends ContentProvider {
     private static final Uri NOTIFICATION_URI = Uri.parse("content://sms");
@@ -657,6 +658,34 @@ public class SmsProvider extends ContentProvider {
         if (count > 0) {
             notifyChange(url);
         }
+        return count;
+    }
+
+    public static int deleteMessages(SQLiteDatabase db,
+            String selection, String[] selectionArgs) {
+        Cursor cursor = db.query(TABLE_SMS, new String[] { Sms.THREAD_ID },
+                 selection, selectionArgs, null, null, null);
+        if (cursor == null) {
+            return 0;
+        }
+
+        HashSet<Long> threadIds = new HashSet<Long>();
+        try {
+            if (cursor.getCount() == 0) {
+                return 0;
+            }
+            while (cursor.moveToNext()) {
+                threadIds.add(cursor.getLong(0));
+            }
+        } finally {
+            cursor.close();
+        }
+
+        int count = db.delete(TABLE_SMS, selection, selectionArgs);
+        for (long thread : threadIds) {
+            MmsSmsDatabaseHelper.updateThread(db, thread);
+        }
+
         return count;
     }
 
