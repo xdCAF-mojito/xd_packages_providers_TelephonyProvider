@@ -263,7 +263,7 @@ public class SmsProvider extends ContentProvider {
             throw new IllegalArgumentException("Bad SMS ICC ID: " + messageIndexString);
         }
         ArrayList<SmsMessage> messages;
-        SmsManager smsManager = SmsManager.getSmsManagerForSubscriber(
+        SmsManager smsManager = SmsManager.getSmsManagerForSubscriptionId(
                 SubscriptionManager.getDefaultSmsSubId());
         // Use phone id to avoid AppOps uid mismatch in telephony
         long token = Binder.clearCallingIdentity();
@@ -289,7 +289,7 @@ public class SmsProvider extends ContentProvider {
      * Return a Cursor listing all the messages stored on the ICC.
      */
     private Cursor getAllMessagesFromIcc() {
-        SmsManager smsManager = SmsManager.getSmsManagerForSubscriber(
+        SmsManager smsManager = SmsManager.getSmsManagerForSubscriptionId(
                 SubscriptionManager.getDefaultSmsSubId());
         ArrayList<SmsMessage> messages;
 
@@ -625,7 +625,7 @@ public class SmsProvider extends ContentProvider {
      * successful.
      */
     private int deleteMessageFromIcc(String messageIndexString) {
-        SmsManager smsManager = SmsManager.getSmsManagerForSubscriber(
+        SmsManager smsManager = SmsManager.getSmsManagerForSubscriptionId(
                 SubscriptionManager.getDefaultSmsSubId());
         // Use phone id to avoid AppOps uid mismatch in telephony
         long token = Binder.clearCallingIdentity();
