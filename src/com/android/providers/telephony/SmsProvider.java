@@ -26,7 +26,6 @@ import android.app.AppOpsManager;
 import android.content.ContentProvider;
 import android.content.ContentResolver;
 import android.content.ContentValues;
-import android.content.Context;
 import android.content.UriMatcher;
 import android.database.Cursor;
 import android.database.DatabaseUtils;
@@ -39,7 +38,6 @@ import android.os.Binder;
 import android.os.UserHandle;
 import android.provider.Contacts;
 import android.provider.Telephony;
-import android.provider.Telephony.Mms;
 import android.provider.Telephony.MmsSms;
 import android.provider.Telephony.Sms;
 import android.provider.Telephony.TextBasedSmsColumns;
@@ -333,7 +331,7 @@ public class SmsProvider extends ContentProvider {
             throw new IllegalArgumentException("Bad SMS ICC ID: " + messageIndexString);
         }
 
-        SmsManager smsManager = SmsManager.getSmsManagerForSubscriber(
+        SmsManager smsManager = SmsManager.getSmsManagerForSubscriptionId(
                 SubscriptionManager.getDefaultSmsSubId());
         // Use phone id to avoid AppOps uid mismatch in telephony
         long token = Binder.clearCallingIdentity();
@@ -341,8 +339,8 @@ public class SmsProvider extends ContentProvider {
             if (phoneId == INVALID_SUBSCRIPTION) {
                 messages = smsManager.getAllMessagesFromIcc();
             } else {
-                long [] subId = SubscriptionManager.getSubId(phoneId);
-                messages = SmsManager.getSmsManagerForSubscriber(subId[0]).getAllMessagesFromIcc();
+                int [] subId = SubscriptionManager.getSubId(phoneId);
+                messages = SmsManager.getSmsManagerForSubscriptionId(subId[0]).getAllMessagesFromIcc();
             }
         } finally {
             Binder.restoreCallingIdentity(token);
@@ -373,8 +371,8 @@ public class SmsProvider extends ContentProvider {
             if (phoneId == INVALID_SUBSCRIPTION) {
                 messages = smsManager.getAllMessagesFromIcc();
             } else {
-                long [] subId = SubscriptionManager.getSubId(phoneId);
-                messages = SmsManager.getSmsManagerForSubscriber(subId[0]).getAllMessagesFromIcc();
+                int [] subId = SubscriptionManager.getSubId(phoneId);
+                messages = SmsManager.getSmsManagerForSubscriptionId(subId[0]).getAllMessagesFromIcc();
             }
         } finally {
             Binder.restoreCallingIdentity(token);
@@ -437,15 +435,16 @@ public class SmsProvider extends ContentProvider {
 
     @Override
     public Uri insert(Uri url, ContentValues initialValues) {
+        final int callerUid = Binder.getCallingUid();
         long token = Binder.clearCallingIdentity();
         try {
-            return insertInner(url, initialValues, true);
+            return insertInner(url, initialValues, callerUid, true);
         } finally {
             Binder.restoreCallingIdentity(token);
         }
     }
 
-    private Uri insertInner(Uri url, ContentValues initialValues, boolean notify) {
+    private Uri insertInner(Uri url, ContentValues initialValues, int callerUid, boolean notify) {
         ContentValues values;
         long rowID;
         int type = Sms.MESSAGE_TYPE_ALL;
@@ -591,6 +590,13 @@ public class SmsProvider extends ContentProvider {
                 // Mark all non-inbox messages read.
                 values.put(Sms.READ, ONE);
             }
+            if (ProviderUtil.shouldSetCreator(values, callerUid)) {
+                // Only SYSTEM or PHONE can set CREATOR
+                // If caller is not SYSTEM or PHONE, or SYSTEM or PHONE does not set CREATOR
+                // set CREATOR using the truth on caller.
+                // Note: Inferring package name from UID may include unrelated package names
+                values.put(Sms.CREATOR, ProviderUtil.getPackageNamesByUid(getContext(), callerUid));
+            }
         } else {
             if (initialValues == null) {
                 values = new ContentValues(1);
@@ -626,7 +632,7 @@ public class SmsProvider extends ContentProvider {
             }
             return uri;
         } else {
-            Log.e(TAG,"insert: failed! " + values.toString());
+            Log.e(TAG,"insert: failed!");
         }
 
         return null;
@@ -636,7 +642,7 @@ public class SmsProvider extends ContentProvider {
         if (values == null) {
             return INSERT_SMS_INTO_ICC_FAIL;
         }
-        long subId = values.getAsLong(PhoneConstants.SUBSCRIPTION_KEY);
+        int subId = values.getAsInteger(PhoneConstants.SUBSCRIPTION_KEY);
         String address = values.getAsString(Sms.ADDRESS);
         String message = values.getAsString(Sms.BODY);
         int boxId = values.getAsInteger(SMS_BOX_ID);
@@ -650,7 +656,7 @@ public class SmsProvider extends ContentProvider {
             pdu = getDeliveryPdu(null, address, message, timestamp, subId);
             status = SmsManager.STATUS_ON_ICC_READ;
         }
-        boolean result = SmsManager.getSmsManagerForSubscriber(subId).copyMessageToIcc(null,
+        boolean result = SmsManager.getSmsManagerForSubscriptionId(subId).copyMessageToIcc(null,
                 pdu, status);
         return result ? INSERT_SMS_INTO_ICC_SUCCESS : INSERT_SMS_INTO_ICC_FAIL;
     }
@@ -659,7 +665,7 @@ public class SmsProvider extends ContentProvider {
      * Generate a Delivery PDU byte array. see getSubmitPdu for reference.
      */
     public static byte[] getDeliveryPdu(String scAddress, String destinationAddress, String message,
-            long date, long subscription) {
+            long date, int subscription) {
         if (isCdmaPhone(subscription)) {
             return getCdmaDeliveryPdu(scAddress, destinationAddress, message, date);
         } else {
@@ -668,7 +674,7 @@ public class SmsProvider extends ContentProvider {
         }
     }
 
-    private static boolean isCdmaPhone(long subscription) {
+    private static boolean isCdmaPhone(int subscription) {
         boolean isCdma = false;
         int activePhone = TelephonyManager.getDefault().getCurrentPhoneType(subscription);
         if (TelephonyManager.PHONE_TYPE_CDMA == activePhone) {
@@ -1041,7 +1047,7 @@ public class SmsProvider extends ContentProvider {
      * successful.
      */
     private int deleteMessageFromIcc(String messageIndexString, int phoneId) {
-        SmsManager smsManager = SmsManager.getSmsManagerForSubscriber(
+        SmsManager smsManager = SmsManager.getSmsManagerForSubscriptionId(
                 SubscriptionManager.getDefaultSmsSubId());
         // Use phone id to avoid AppOps uid mismatch in telephony
         long token = Binder.clearCallingIdentity();
@@ -1051,8 +1057,8 @@ public class SmsProvider extends ContentProvider {
                         Integer.parseInt(messageIndexString))
                        ? DELETE_SUCCESS : DELETE_FAIL;
             } else {
-                long [] subId = SubscriptionManager.getSubId(phoneId);
-                return SmsManager.getSmsManagerForSubscriber(subId[0]).deleteMessageFromIcc(
+                int [] subId = SubscriptionManager.getSubId(phoneId);
+                return SmsManager.getSmsManagerForSubscriptionId(subId[0]).deleteMessageFromIcc(
                        Integer.parseInt(messageIndexString))
                         ? DELETE_SUCCESS : DELETE_FAIL;
             }
@@ -1072,11 +1078,12 @@ public class SmsProvider extends ContentProvider {
         SQLiteDatabase db = mOpenHelper.getReadableDatabase();
         db.beginTransaction();
         long token = Binder.clearCallingIdentity();
+        final int callerUid = Binder.getCallingUid();
         int numValues = values.length;
         Log.d(TAG, "start bulkInsert uri: " + uri + " count: " + numValues);
         try {
             for (int i = 0; i < numValues; i++) {
-                insertInner(uri, values[i], false);
+                insertInner(uri, values[i], callerUid, false);
             }
             notifyChange(uri);
             db.setTransactionSuccessful();
@@ -1091,6 +1098,7 @@ public class SmsProvider extends ContentProvider {
 
     @Override
     public int update(Uri url, ContentValues values, String where, String[] whereArgs) {
+        final int callerUid = Binder.getCallingUid();
         int count = 0;
         String table = TABLE_SMS;
         String extraWhere = null;
@@ -1148,6 +1156,13 @@ public class SmsProvider extends ContentProvider {
             default:
                 throw new UnsupportedOperationException(
                         "URI " + url + " not supported");
+        }
+
+        if (table.equals(TABLE_SMS) && ProviderUtil.shouldRemoveCreator(values, callerUid)) {
+            // CREATOR should not be changed by non-SYSTEM/PHONE apps
+            Log.w(TAG, ProviderUtil.getPackageNamesByUid(getContext(), callerUid) +
+                    " tries to update CREATOR");
+            values.remove(Sms.CREATOR);
         }
 
         where = DatabaseUtils.concatenateWhere(where, extraWhere);
