@@ -38,10 +38,12 @@ import android.provider.BaseColumns;
 import android.provider.Telephony;
 import android.provider.Telephony.CanonicalAddressesColumns;
 import android.provider.Telephony.Mms;
-import android.provider.Telephony.MmsSms;
 import android.provider.Telephony.Mms.Addr;
 import android.provider.Telephony.Mms.Part;
 import android.provider.Telephony.Mms.Rate;
+import android.provider.Telephony.MmsSms;
+import android.provider.Telephony.Threads;
+import android.telephony.SmsManager;
 import android.text.TextUtils;
 import android.util.Log;
 
@@ -60,8 +62,6 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.HashSet;
-
-import android.provider.Telephony.Threads;
 
 /**
  * The class to provide base facility to access MMS related content,
@@ -376,6 +376,13 @@ public class MmsProvider extends ContentProvider {
         return data;
     }
 
+    private boolean shouldParseContentDisposition() {
+        return SmsManager
+                .getDefault()
+                .getCarrierConfigValues()
+                .getBoolean(SmsManager.MMS_CONFIG_SUPPORT_MMS_CONTENT_DISPOSITION, true);
+    }
+
     private Uri restorePduFile(Uri uri, String pduPath) {
         Uri msgUri = null;
         if (uri == null || TextUtils.isEmpty(pduPath)) {
@@ -388,7 +395,8 @@ public class MmsProvider extends ContentProvider {
             if (pduData != null && pduData.length > 0) {
                 if (Mms.Sent.CONTENT_URI.equals(uri)
                         || Mms.Inbox.CONTENT_URI.equals(uri)) {
-                    GenericPdu pdu = new PduParser(pduData).parse();
+                    GenericPdu pdu = new PduParser(pduData,
+                                shouldParseContentDisposition()).parse();
                     msgUri = pduPersister.persist(
                             pdu, uri, true, false, null);
                 } else {
@@ -466,13 +474,13 @@ public class MmsProvider extends ContentProvider {
         }
     }
 
-
     @Override
     public Uri insert(Uri uri, ContentValues values) {
         // Don't let anyone insert anything with the _data column
         if (values != null && values.containsKey(Part._DATA)) {
             return null;
         }
+        final int callerUid = Binder.getCallingUid();
         int msgBox = Mms.MESSAGE_BOX_ALL;
         boolean notify = true;
 
@@ -565,19 +573,27 @@ public class MmsProvider extends ContentProvider {
                 finalValues.put(Mms.THREAD_ID, Threads.getOrCreateThreadId(getContext(), address));
             }
 
+            if (ProviderUtil.shouldSetCreator(finalValues, callerUid)) {
+                // Only SYSTEM or PHONE can set CREATOR
+                // If caller is not SYSTEM or PHONE, or SYSTEM or PHONE does not set CREATOR
+                // set CREATOR using the truth on caller.
+                // Note: Inferring package name from UID may include unrelated package names
+                finalValues.put(Telephony.Mms.CREATOR,
+                        ProviderUtil.getPackageNamesByUid(getContext(), callerUid));
+            }
+
             if ((rowId = db.insert(table, null, finalValues)) <= 0) {
-                Log.e(TAG, "MmsProvider.insert: failed! " + finalValues);
+                Log.e(TAG, "MmsProvider.insert: failed!");
                 return null;
             }
 
             res = Uri.parse(res + "/" + rowId);
-
         } else if (table.equals(TABLE_ADDR)) {
             finalValues = new ContentValues(values);
             finalValues.put(Addr.MSG_ID, uri.getPathSegments().get(0));
 
             if ((rowId = db.insert(table, null, finalValues)) <= 0) {
-                Log.e(TAG, "Failed to insert address: " + finalValues);
+                Log.e(TAG, "Failed to insert address");
                 return null;
             }
 
@@ -646,7 +662,7 @@ public class MmsProvider extends ContentProvider {
             }
 
             if ((rowId = db.insert(table, null, finalValues)) <= 0) {
-                Log.e(TAG, "MmsProvider.insert: failed! " + finalValues);
+                Log.e(TAG, "MmsProvider.insert: failed!");
                 return null;
             }
 
@@ -698,7 +714,7 @@ public class MmsProvider extends ContentProvider {
             }
 
             if ((rowId = db.insert(table, null, finalValues)) <= 0) {
-                Log.e(TAG, "MmsProvider.insert: failed! " + finalValues);
+                Log.e(TAG, "MmsProvider.insert: failed!");
                 return null;
             }
             res = Uri.parse(res + "/drm/" + rowId);
@@ -912,6 +928,7 @@ public class MmsProvider extends ContentProvider {
         if (values != null && values.containsKey(Part._DATA)) {
             return 0;
         }
+        final int callerUid = Binder.getCallingUid();
         int match = sURLMatcher.match(uri);
         if (LOCAL_LOGV) {
             Log.v(TAG, "Update uri=" + uri + ", match=" + match);
@@ -964,6 +981,12 @@ public class MmsProvider extends ContentProvider {
         if (table.equals(TABLE_PDU)) {
             // Filter keys that we don't support yet.
             filterUnsupportedKeys(values);
+            if (ProviderUtil.shouldRemoveCreator(values, callerUid)) {
+                // CREATOR should not be changed by non-SYSTEM/PHONE apps
+                Log.w(TAG, ProviderUtil.getPackageNamesByUid(getContext(), callerUid) +
+                        " tries to update CREATOR");
+                values.remove(Mms.CREATOR);
+            }
             finalValues = new ContentValues(values);
 
             if (msgId != null) {

@@ -35,6 +35,7 @@ import android.database.sqlite.SQLiteQueryBuilder;
 import android.net.Uri;
 import android.os.Binder;
 import android.os.Environment;
+import android.os.UserHandle;
 import android.provider.Telephony;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
@@ -61,7 +62,7 @@ public class TelephonyProvider extends ContentProvider
     private static final boolean DBG = true;
     private static final boolean VDBG = false;
 
-    private static final int DATABASE_VERSION = 12 << 16;
+    private static final int DATABASE_VERSION = 13 << 16;
     private static final int URL_UNKNOWN = 0;
     private static final int URL_TELEPHONY = 1;
     private static final int URL_CURRENT = 2;
@@ -192,14 +193,15 @@ public class TelephonyProvider extends ContentProvider
         private void createSimInfoTable(SQLiteDatabase db) {
             if (DBG) log("dbh.createSimInfoTable:+");
             db.execSQL("CREATE TABLE " + SIMINFO_TABLE + "("
-                    + "_id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                    + SubscriptionManager.UNIQUE_KEY_SUBSCRIPTION_ID + " INTEGER PRIMARY KEY AUTOINCREMENT,"
                     + SubscriptionManager.ICC_ID + " TEXT NOT NULL,"
-                    + SubscriptionManager.SIM_ID + " INTEGER DEFAULT " + SubscriptionManager.SIM_NOT_INSERTED + ","
+                    + SubscriptionManager.SIM_SLOT_INDEX + " INTEGER DEFAULT " + SubscriptionManager.SIM_NOT_INSERTED + ","
                     + SubscriptionManager.DISPLAY_NAME + " TEXT,"
+                    + SubscriptionManager.CARRIER_NAME + " TEXT,"
                     + SubscriptionManager.NAME_SOURCE + " INTEGER DEFAULT " + SubscriptionManager.NAME_SOURCE_DEFAULT_SOURCE + ","
                     + SubscriptionManager.COLOR + " INTEGER DEFAULT " + SubscriptionManager.COLOR_DEFAULT + ","
                     + SubscriptionManager.NUMBER + " TEXT,"
-                    + SubscriptionManager.DISPLAY_NUMBER_FORMAT + " INTEGER NOT NULL DEFAULT " + SubscriptionManager.DISLPAY_NUMBER_DEFAULT + ","
+                    + SubscriptionManager.DISPLAY_NUMBER_FORMAT + " INTEGER NOT NULL DEFAULT " + SubscriptionManager.DISPLAY_NUMBER_DEFAULT + ","
                     + SubscriptionManager.DATA_ROAMING + " INTEGER DEFAULT " + SubscriptionManager.DATA_ROAMING_DEFAULT + ","
                     + SubscriptionManager.MCC + " INTEGER DEFAULT 0,"
                     + SubscriptionManager.MNC + " INTEGER DEFAULT 0" + ","
@@ -236,7 +238,7 @@ public class TelephonyProvider extends ContentProvider
                     "bearer INTEGER," +
                     "mvno_type TEXT," +
                     "mvno_match_data TEXT," +
-                    "sub_id LONG DEFAULT -1," +
+                    "sub_id INTEGER DEFAULT " + SubscriptionManager.INVALID_SUBSCRIPTION_ID + "," +
                     "profile_id INTEGER default 0," +
                     "modem_cognitive BOOLEAN default 0," +
                     "max_conns INTEGER default 0," +
@@ -247,10 +249,9 @@ public class TelephonyProvider extends ContentProvider
                     "localized_name TEXT," +
                     "visit_area TEXT," +
                     "mtu INTEGER);");
-             /* FIXME Currenlty sub_id is column is not used for query purpose.
-             This would be modified to more appropriate default value later. */
             if (DBG) log("dbh.createCarriersTable:-");
         }
+
         private void initDatabase(SQLiteDatabase db) {
             if (VDBG) log("dbh.initDatabase:+ db=" + db);
             // Read internal APNS data
@@ -351,7 +352,8 @@ public class TelephonyProvider extends ContentProvider
             }
             if (oldVersion < (9 << 16 | 6)) {
                 db.execSQL("ALTER TABLE " + CARRIERS_TABLE +
-                        " ADD COLUMN sub_id LONG DEFAULT -1;");
+                        " ADD COLUMN sub_id INTEGER DEFAULT " +
+                        SubscriptionManager.INVALID_SUBSCRIPTION_ID + ";");
                 oldVersion = 9 << 16 | 6;
             }
             if (oldVersion < (10 << 16 | 6)) {
@@ -386,6 +388,19 @@ public class TelephonyProvider extends ContentProvider
                     }
                 }
                 oldVersion = 12 << 16 | 6;
+            }
+            if (oldVersion < (13 << 16 | 6)) {
+                try {
+                    // Try to update the siminfo table. It might not be there.
+                    db.execSQL("ALTER TABLE " + SIMINFO_TABLE +
+                            " ADD COLUMN " + SubscriptionManager.CARRIER_NAME + " TEXT DEFAULT '';");
+                } catch (SQLiteException e) {
+                    if (DBG) {
+                        log("onUpgrade skipping " + SIMINFO_TABLE + " upgrade. " +
+                                " The table will get created in onOpen.");
+                    }
+                }
+                oldVersion = 13 << 16 | 6;
             }
             if (DBG) {
                 log("dbh.onUpgrade:- db=" + db + " oldV=" + oldVersion + " newV=" + newVersion);
@@ -607,9 +622,9 @@ public class TelephonyProvider extends ContentProvider
                 values.put(Telephony.Carriers.MVNO_MATCH_DATA, "");
             }
 
-            long subId = SubscriptionManager.getDefaultDataSubId();
-            if (!values.containsKey(Telephony.Carriers.SUB_ID)) {
-                values.put(Telephony.Carriers.SUB_ID, subId);
+            int subId = SubscriptionManager.getDefaultSubId();
+            if (!values.containsKey(Telephony.Carriers.SUBSCRIPTION_ID)) {
+                values.put(Telephony.Carriers.SUBSCRIPTION_ID, subId);
             }
 
             if (!values.containsKey(Telephony.Carriers.PROFILE_ID)) {
@@ -651,7 +666,7 @@ public class TelephonyProvider extends ContentProvider
         return true;
     }
 
-    private void setPreferredApnId(Long id, long subId) {
+    private void setPreferredApnId(Long id, int subId) {
         SharedPreferences sp = getContext().getSharedPreferences(
                 PREF_FILE + subId, Context.MODE_PRIVATE);
         SharedPreferences.Editor editor = sp.edit();
@@ -659,7 +674,7 @@ public class TelephonyProvider extends ContentProvider
         editor.apply();
     }
 
-    private long getPreferredApnId(long subId) {
+    private long getPreferredApnId(int subId) {
         SharedPreferences sp = getContext().getSharedPreferences(
                 PREF_FILE + subId, Context.MODE_PRIVATE);
         return sp.getLong(COLUMN_APN_ID, -1);
@@ -670,7 +685,7 @@ public class TelephonyProvider extends ContentProvider
             String[] selectionArgs, String sort) {
         TelephonyManager mTelephonyManager =
                 (TelephonyManager)getContext().getSystemService(Context.TELEPHONY_SERVICE);
-        long subId = SubscriptionManager.getDefaultDataSubId();
+        int subId = SubscriptionManager.getDefaultDataSubId();
         String subIdString;
         SQLiteQueryBuilder qb = new SQLiteQueryBuilder();
         qb.setStrict(true); // a little protection from injection attacks
@@ -681,7 +696,7 @@ public class TelephonyProvider extends ContentProvider
             case URL_TELEPHONY_USING_SUBID: {
                 subIdString = url.getLastPathSegment();
                 try {
-                    subId = Long.parseLong(subIdString);
+                    subId = Integer.parseInt(subIdString);
                 } catch (NumberFormatException e) {
                     loge("NumberFormatException" + e);
                     return null;
@@ -701,7 +716,7 @@ public class TelephonyProvider extends ContentProvider
             case URL_CURRENT_USING_SUBID: {
                 subIdString = url.getLastPathSegment();
                 try {
-                    subId = Long.parseLong(subIdString);
+                    subId = Integer.parseInt(subIdString);
                 } catch (NumberFormatException e) {
                     loge("NumberFormatException" + e);
                     return null;
@@ -727,7 +742,7 @@ public class TelephonyProvider extends ContentProvider
             case URL_PREFERAPN_NO_UPDATE_USING_SUBID: {
                 subIdString = url.getLastPathSegment();
                 try {
-                    subId = Long.parseLong(subIdString);
+                    subId = Integer.parseInt(subIdString);
                 } catch (NumberFormatException e) {
                     loge("NumberFormatException" + e);
                     return null;
@@ -809,7 +824,7 @@ public class TelephonyProvider extends ContentProvider
     public Uri insert(Uri url, ContentValues initialValues)
     {
         Uri result = null;
-        long subId = SubscriptionManager.getDefaultDataSubId();
+        int subId = SubscriptionManager.getDefaultDataSubId();
 
         checkPermission();
 
@@ -822,7 +837,7 @@ public class TelephonyProvider extends ContentProvider
             {
                 String subIdString = url.getLastPathSegment();
                 try {
-                    subId = Long.parseLong(subIdString);
+                    subId = Integer.parseInt(subIdString);
                 } catch (NumberFormatException e) {
                     loge("NumberFormatException" + e);
                     return result;
@@ -857,7 +872,7 @@ public class TelephonyProvider extends ContentProvider
             {
                 String subIdString = url.getLastPathSegment();
                 try {
-                    subId = Long.parseLong(subIdString);
+                    subId = Integer.parseInt(subIdString);
                 } catch (NumberFormatException e) {
                     loge("NumberFormatException" + e);
                     return result;
@@ -892,7 +907,7 @@ public class TelephonyProvider extends ContentProvider
             {
                 String subIdString = url.getLastPathSegment();
                 try {
-                    subId = Long.parseLong(subIdString);
+                    subId = Integer.parseInt(subIdString);
                 } catch (NumberFormatException e) {
                     loge("NumberFormatException" + e);
                     return result;
@@ -920,7 +935,8 @@ public class TelephonyProvider extends ContentProvider
         }
 
         if (notify) {
-            getContext().getContentResolver().notifyChange(Telephony.Carriers.CONTENT_URI, null);
+            getContext().getContentResolver().notifyChange(Telephony.Carriers.CONTENT_URI, null,
+                    true, UserHandle.USER_ALL);
         }
 
         return result;
@@ -930,7 +946,7 @@ public class TelephonyProvider extends ContentProvider
     public int delete(Uri url, String where, String[] whereArgs)
     {
         int count = 0;
-        long subId = SubscriptionManager.getDefaultDataSubId();
+        int subId = SubscriptionManager.getDefaultDataSubId();
 
         checkPermission();
 
@@ -942,7 +958,7 @@ public class TelephonyProvider extends ContentProvider
             {
                  String subIdString = url.getLastPathSegment();
                  try {
-                     subId = Long.parseLong(subIdString);
+                     subId = Integer.parseInt(subIdString);
                  } catch (NumberFormatException e) {
                      loge("NumberFormatException" + e);
                      throw new IllegalArgumentException("Invalid subId " + url);
@@ -961,7 +977,7 @@ public class TelephonyProvider extends ContentProvider
             case URL_CURRENT_USING_SUBID: {
                 String subIdString = url.getLastPathSegment();
                 try {
-                    subId = Long.parseLong(subIdString);
+                    subId = Integer.parseInt(subIdString);
                 } catch (NumberFormatException e) {
                     loge("NumberFormatException" + e);
                     throw new IllegalArgumentException("Invalid subId " + url);
@@ -987,7 +1003,7 @@ public class TelephonyProvider extends ContentProvider
             case URL_RESTOREAPN_USING_SUBID: {
                 String subIdString = url.getLastPathSegment();
                 try {
-                    subId = Long.parseLong(subIdString);
+                    subId = Integer.parseInt(subIdString);
                 } catch (NumberFormatException e) {
                     loge("NumberFormatException" + e);
                     throw new IllegalArgumentException("Invalid subId " + url);
@@ -1005,7 +1021,7 @@ public class TelephonyProvider extends ContentProvider
             case URL_PREFERAPN_NO_UPDATE_USING_SUBID: {
                 String subIdString = url.getLastPathSegment();
                 try {
-                    subId = Long.parseLong(subIdString);
+                    subId = Integer.parseInt(subIdString);
                 } catch (NumberFormatException e) {
                     loge("NumberFormatException" + e);
                     throw new IllegalArgumentException("Invalid subId " + url);
@@ -1033,7 +1049,8 @@ public class TelephonyProvider extends ContentProvider
         }
 
         if (count > 0) {
-            getContext().getContentResolver().notifyChange(Telephony.Carriers.CONTENT_URI, null);
+            getContext().getContentResolver().notifyChange(Telephony.Carriers.CONTENT_URI, null,
+                    true, UserHandle.USER_ALL);
         }
 
         return count;
@@ -1044,7 +1061,7 @@ public class TelephonyProvider extends ContentProvider
     {
         int count = 0;
         int uriType = URL_UNKNOWN;
-        long subId = SubscriptionManager.getDefaultDataSubId();
+        int subId = SubscriptionManager.getDefaultDataSubId();
 
         checkPermission();
 
@@ -1056,7 +1073,7 @@ public class TelephonyProvider extends ContentProvider
             {
                  String subIdString = url.getLastPathSegment();
                  try {
-                     subId = Long.parseLong(subIdString);
+                     subId = Integer.parseInt(subIdString);
                  } catch (NumberFormatException e) {
                      loge("NumberFormatException" + e);
                      throw new IllegalArgumentException("Invalid subId " + url);
@@ -1076,7 +1093,7 @@ public class TelephonyProvider extends ContentProvider
             {
                 String subIdString = url.getLastPathSegment();
                 try {
-                    subId = Long.parseLong(subIdString);
+                    subId = Integer.parseInt(subIdString);
                 } catch (NumberFormatException e) {
                     loge("NumberFormatException" + e);
                     throw new IllegalArgumentException("Invalid subId " + url);
@@ -1108,7 +1125,7 @@ public class TelephonyProvider extends ContentProvider
             {
                 String subIdString = url.getLastPathSegment();
                 try {
-                    subId = Long.parseLong(subIdString);
+                    subId = Integer.parseInt(subIdString);
                 } catch (NumberFormatException e) {
                     loge("NumberFormatException" + e);
                     throw new IllegalArgumentException("Invalid subId " + url);
@@ -1146,11 +1163,11 @@ public class TelephonyProvider extends ContentProvider
             switch (uriType) {
                 case URL_SIMINFO:
                     getContext().getContentResolver().notifyChange(
-                            SubscriptionManager.CONTENT_URI, null);
+                            SubscriptionManager.CONTENT_URI, null, true, UserHandle.USER_ALL);
                     break;
                 default:
                     getContext().getContentResolver().notifyChange(
-                            Telephony.Carriers.CONTENT_URI, null);
+                            Telephony.Carriers.CONTENT_URI, null, true, UserHandle.USER_ALL);
             }
         }
 
@@ -1180,7 +1197,7 @@ public class TelephonyProvider extends ContentProvider
 
     private DatabaseHelper mOpenHelper;
 
-    private void restoreDefaultAPN(long subId) {
+    private void restoreDefaultAPN(int subId) {
         SQLiteDatabase db = mOpenHelper.getWritableDatabase();
 
         try {

@@ -42,6 +42,7 @@ import android.provider.Telephony.Mms.Addr;
 import android.provider.Telephony.Mms.Part;
 import android.provider.Telephony.Mms.Rate;
 import android.provider.Telephony.MmsSms.PendingMessages;
+import android.telephony.SubscriptionManager;
 import android.util.Log;
 
 import com.google.android.mms.pdu.EncodedStringValue;
@@ -1640,6 +1641,13 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
         }
     }
 
+    private void upgradeDatabaseToVersion62(SQLiteDatabase db) {
+        // Improve the performance of deleting Mms.
+        db.execSQL("DROP TRIGGER IF EXISTS update_threads_on_delete_part");
+        db.execSQL("DROP TRIGGER IF EXISTS mms_words_delete");
+        db.execSQL("DROP TRIGGER IF EXISTS pdu_update_thread_on_delete");
+    }
+
     // Try to copy data from existing src column to new column which supposed
     // to be added before calling this functin.
     // If src or dest column not exsit, it will just bail out.
@@ -1666,13 +1674,6 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
             }
         }
         return false;
-    }
-
-    private void upgradeDatabaseToVersion62(SQLiteDatabase db) {
-        // Improve the performance of deleting Mms.
-        db.execSQL("DROP TRIGGER IF EXISTS update_threads_on_delete_part");
-        db.execSQL("DROP TRIGGER IF EXISTS mms_words_delete");
-        db.execSQL("DROP TRIGGER IF EXISTS pdu_update_thread_on_delete");
     }
 
     @Override
@@ -1952,7 +1953,7 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                 Mms.DELIVERY_TIME + " INTEGER," +
                 Mms.DELIVERY_REPORT + " INTEGER," +
                 Mms.LOCKED + " INTEGER DEFAULT 0," +
-                Mms.PHONE_ID + " INTEGER DEFAULT -1," +
+                Mms.PHONE_ID + " INTEGER DEFAULT -1, " +
                 Mms.SEEN + " INTEGER DEFAULT 0," +
                 Mms.TEXT_ONLY + " INTEGER DEFAULT 0" +
                 ");");
