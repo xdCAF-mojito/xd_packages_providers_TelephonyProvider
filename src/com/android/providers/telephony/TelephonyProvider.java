@@ -95,6 +95,8 @@ public class TelephonyProvider extends ContentProvider
     private static final ContentValues s_currentNullMap;
     private static final ContentValues s_currentSetMap;
 
+    private static final String NO_SUCH_COLUMN_EXCPTION_MESSAGE = "no such column";
+
     static {
         s_urlMatcher.addURI("telephony", "carriers", URL_TELEPHONY);
         s_urlMatcher.addURI("telephony", "carriers/current", URL_CURRENT);
@@ -170,6 +172,7 @@ public class TelephonyProvider extends ContentProvider
                 // Try to access the table and create it if "no such table"
                 db.query(SIMINFO_TABLE, null, null, null, null, null, null);
                 if (DBG) log("dbh.onOpen: ok, queried table=" + SIMINFO_TABLE);
+                checkAndUpdateSimInfoTable(db);
             } catch (SQLiteException e) {
                 loge("Exception " + SIMINFO_TABLE + "e=" + e);
                 if (e.getMessage().startsWith("no such table")) {
@@ -179,6 +182,7 @@ public class TelephonyProvider extends ContentProvider
             try {
                 db.query(CARRIERS_TABLE, null, null, null, null, null, null);
                 if (DBG) log("dbh.onOpen: ok, queried table=" + CARRIERS_TABLE);
+                checkAndUpdateCarriersTable(db);
             } catch (SQLiteException e) {
                 loge("Exception " + CARRIERS_TABLE + " e=" + e);
                 if (e.getMessage().startsWith("no such table")) {
@@ -400,11 +404,19 @@ public class TelephonyProvider extends ContentProvider
                                 " The table will get created in onOpen.");
                     }
                 }
+
+                try {
+                    db.execSQL("ALTER TABLE " + CARRIERS_TABLE +
+                            " ADD COLUMN " + READ_ONLY + " BOOLEAN DEFAULT 0;");
+                } catch (SQLiteException e) {
+                    // Some users with older version might already have READ_ONLY column.
+                    if (DBG) {
+                        log("onUpgrade " + READ_ONLY + "column upgrade ex: " + e);
+                    }
+                }
                 oldVersion = 12 << 16 | 6;
             }
             if (oldVersion < (13 << 16 | 6)) {
-                db.execSQL("ALTER TABLE " + CARRIERS_TABLE +
-                        " ADD COLUMN "+READ_ONLY+" BOOLEAN DEFAULT 0;");
                 try {
                     // Try to update the siminfo table. It might not be there.
                     db.execSQL("ALTER TABLE " + SIMINFO_TABLE +
@@ -657,6 +669,55 @@ public class TelephonyProvider extends ContentProvider
         private void insertAddingDefaults(SQLiteDatabase db, String table, ContentValues row) {
             row = setDefaultValue(row);
             db.insert(CARRIERS_TABLE, null, row);
+        }
+
+        /**
+         * Due to a versioning bug, SubscriptionManager.CARRIER_NAME column may not be available
+         * in siminfo table for some users. Check and create columns appropriately during onOpen().
+         */
+        private void checkAndUpdateSimInfoTable(SQLiteDatabase db) {
+            try {
+                log("query carrier_name column in siminfo table");
+                db.query(SIMINFO_TABLE, new String[]{SubscriptionManager.CARRIER_NAME},
+                        null, null, null, null, null);
+            } catch (SQLiteException e) {
+                log("checkAndUpdateSimInfoTable ex: " + e);
+                if (e.getMessage().startsWith(NO_SUCH_COLUMN_EXCPTION_MESSAGE)) {
+                    db.execSQL("ALTER TABLE " + SIMINFO_TABLE +
+                            " ADD COLUMN " + SubscriptionManager.CARRIER_NAME +
+                            " TEXT DEFAULT '';");
+                }
+            }
+        }
+
+        /**
+         * Due to a versioning bug, sub_id and read_only columns may not be available in carriers
+         * table for some users. Check and create columns appropriately during onOpen()
+         */
+        private void checkAndUpdateCarriersTable(SQLiteDatabase db) {
+            try {
+                log("query sub_id column in carriers table");
+                db.query(CARRIERS_TABLE, new String[]{"sub_id"}, null, null, null, null, null);
+            } catch (SQLiteException e) {
+                log("checkAndUpdateCarriersTable: ex: " + e);
+                if (e.getMessage().startsWith(NO_SUCH_COLUMN_EXCPTION_MESSAGE)) {
+                    log("create sub_id column");
+                    db.execSQL("ALTER TABLE " + CARRIERS_TABLE +
+                            " ADD COLUMN sub_id INTEGER DEFAULT " +
+                            SubscriptionManager.INVALID_SUBSCRIPTION_ID + ";");
+                }
+            }
+            try {
+                log("query read_only column in carriers table");
+                db.query(CARRIERS_TABLE, new String[]{READ_ONLY}, null, null, null, null, null);
+            } catch (SQLiteException e) {
+                log("checkAndUpdateCarriersTable: ex: " + e);
+                if (e.getMessage().startsWith(NO_SUCH_COLUMN_EXCPTION_MESSAGE)) {
+                    log("create read_only column");
+                    db.execSQL("ALTER TABLE " + CARRIERS_TABLE +
+                            " ADD COLUMN " + READ_ONLY + " BOOLEAN DEFAULT 0;");
+                }
+            }
         }
     }
 
