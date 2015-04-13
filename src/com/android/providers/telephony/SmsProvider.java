@@ -1075,7 +1075,7 @@ public class SmsProvider extends ContentProvider {
 
     @Override
     public int bulkInsert(Uri uri, ContentValues[] values) {
-        SQLiteDatabase db = mOpenHelper.getReadableDatabase();
+        SQLiteDatabase db = mOpenHelper.getWritableDatabase();
         db.beginTransaction();
         long token = Binder.clearCallingIdentity();
         final int callerUid = Binder.getCallingUid();
