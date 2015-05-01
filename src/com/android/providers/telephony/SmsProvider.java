@@ -627,6 +627,21 @@ public class SmsProvider extends ContentProvider {
                 // Note: Inferring package name from UID may include unrelated package names
                 values.put(Sms.CREATOR, ProviderUtil.getPackageNamesByUid(getContext(), callerUid));
             }
+            if (!initialValues.containsKey(Sms.SUBSCRIPTION_ID) &&
+                    initialValues.containsKey(Sms.PHONE_ID)) {
+                int phoneId = initialValues.getAsInteger(Sms.PHONE_ID);
+                int[] subId = SubscriptionManager.getSubId(phoneId);
+                if (subId != null) {
+                    values.put(Sms.SUBSCRIPTION_ID, subId[0]);
+                }
+            }
+            if (!initialValues.containsKey(Sms.PHONE_ID) &&
+                    initialValues.containsKey(Sms.SUBSCRIPTION_ID)) {
+                int subId = initialValues.getAsInteger(Sms.SUBSCRIPTION_ID);
+                int phoneId = SubscriptionManager.getPhoneId(subId);
+                values.put(Sms.PHONE_ID, phoneId);
+            }
+
         } else {
             if (initialValues == null) {
                 values = new ContentValues(1);
