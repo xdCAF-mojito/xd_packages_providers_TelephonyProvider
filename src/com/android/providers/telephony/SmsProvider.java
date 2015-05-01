@@ -511,6 +511,20 @@ public class SmsProvider extends ContentProvider {
                 // Mark all non-inbox messages read.
                 values.put(Sms.READ, ONE);
             }
+            if (!initialValues.containsKey(Sms.SUB_ID) &&
+                    initialValues.containsKey(Sms.PHONE_ID)) {
+                int phoneId = initialValues.getAsInteger(Sms.PHONE_ID);
+                long[] subId = SubscriptionManager.getSubId(phoneId);
+                if (subId != null) {
+                    values.put(Sms.SUB_ID, subId[0]);
+                }
+            }
+            if (!initialValues.containsKey(Sms.PHONE_ID) &&
+                    initialValues.containsKey(Sms.SUB_ID)) {
+                int subId = initialValues.getAsInteger(Sms.SUB_ID);
+                int phoneId = SubscriptionManager.getPhoneId(subId);
+                values.put(Sms.PHONE_ID, phoneId);
+            }
         } else {
             if (initialValues == null) {
                 values = new ContentValues(1);
