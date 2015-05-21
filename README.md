@@ -1,2 +1,0 @@
-platform-packages-providers-TelephonyProvider
-=============================================
