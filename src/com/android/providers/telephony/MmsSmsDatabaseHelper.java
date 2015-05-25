@@ -166,7 +166,7 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
     private static boolean sFakeLowStorageTest = false;     // for testing only
 
     static final String DATABASE_NAME = "mmssms.db";
-    static final int DATABASE_VERSION = 63;
+    static final int DATABASE_VERSION = 64;
     private final Context mContext;
     private LowStorageMonitor mLowStorageMonitor;
 
@@ -1412,6 +1412,20 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
             } finally {
                 db.endTransaction();
             }
+        case 63:
+            if(currentVersion <= 63) {
+                return;
+            }
+            db.beginTransaction();
+            try {
+                upgradeDatabaseToVersion64(db);
+                db.setTransactionSuccessful();
+            } catch (Throwable ex) {
+                Log.e(TAG, ex.getMessage(), ex);
+                break;
+            } finally {
+                db.endTransaction();
+            }
             return;
         }
 
@@ -1683,6 +1697,45 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
         db.execSQL("ALTER TABLE " + SmsProvider.TABLE_RAW +" ADD COLUMN "
                 + Sms.SUBSCRIPTION_ID + " INTEGER DEFAULT "
                 + SubscriptionManager.INVALID_SUBSCRIPTION_ID);
+    }
+
+    private void upgradeDatabaseToVersion64(SQLiteDatabase db) {
+        // add RCS default column.
+        db.execSQL("ALTER TABLE threads ADD COLUMN top INTEGER DEFAULT 0");
+        db.execSQL("ALTER TABLE threads ADD COLUMN top_time INTEGER DEFAULT 0");
+        db.execSQL("ALTER TABLE threads ADD COLUMN is_group_chat INTEGER DEFAULT 0");
+        db.execSQL("ALTER TABLE sms ADD COLUMN favourite INTEGER DEFAULT 0");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_message_id TEXT");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_data TEXT");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_filename TEXT");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_filesize LONG");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_mime_type TEXT");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_msg_type INTEGER DEFAULT -1");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_send_receive INTEGER");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_is_read INTEGER");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_msg_state INTEGER");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_chat_type INTEGER");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_thread_id TEXT");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_conversation_id TEXT");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_contribution_id TEXT");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_file_selector TEXT");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_file_transfer_ext TEXT");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_file_transfer_id TEXT");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_file_icon TEXT");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_burn_flag INTEGER DEFAULT -1");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_barcycle INTEGER");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_header TEXT");
+        db.execSQL("ALTER TABLE sms ADD COLUMN is_rcs INTEGER DEFAULT -1");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_have_attach INTEGER DEFAULT -1");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_path TEXT");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_is_burn INTEGER");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_is_download INTEGER DEFAULT 0");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_play_time INTEGER DEFAULT 0");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_file_size INTEGER DEFAULT 0");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_id INTEGER DEFAULT -1");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_thumb_path TEXT");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_burn_body TEXT");
+        db.execSQL("ALTER TABLE sms ADD COLUMN rcs_nmsg_state TEXT");
     }
 
     // Try to copy data from existing src column to new column which supposed
