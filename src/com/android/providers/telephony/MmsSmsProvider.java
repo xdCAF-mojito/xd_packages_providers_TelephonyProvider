@@ -265,7 +265,7 @@ public class MmsSmsProvider extends ContentProvider {
             + "NULL AS msg_box,"
             + "NULL AS d_rpt, NULL AS rr, NULL AS err_type,"
             + "locked, NULL AS st, NULL AS text_only,"
-            + "phone_id, NULL AS recipient_ids";
+            + "phone_id, NULL AS recipient_ids, is_rcs";
     private static final String MMS_PROJECTION = "'mms' AS transport_type, pdu._id, thread_id,"
             + "addr.address AS address, part.text as body, phone_id,"
             + "NULL AS rcs_path,"
@@ -289,7 +289,7 @@ public class MmsSmsProvider extends ContentProvider {
             + "pdu.msg_box AS msg_box,"
             + "d_rpt, rr, NULL AS err_type,"
             + "locked, NULL AS st, NULL AS text_only,"
-            + "phone_id, NULL AS recipient_ids";
+            + "phone_id, NULL AS recipient_ids, NULL AS is_rcs";
 
     private static final String MMS_PROJECTION_FOR_SUBJECT_SEARCH =
             "'mms' AS transport_type, pdu._id, thread_id,"
@@ -315,7 +315,7 @@ public class MmsSmsProvider extends ContentProvider {
             + "pdu.msg_box AS msg_box,"
             + "d_rpt, rr, NULL AS err_type,"
             + "locked, NULL AS st, NULL AS text_only,"
-            + "phone_id, NULL AS recipient_ids";
+            + "phone_id, NULL AS recipient_ids, NULL AS is_rcs";
 
     private static final String MMS_PROJECTION_FOR_NUMBER_SEARCH =
             "'mms' AS transport_type, pdu._id, thread_id,"
@@ -341,7 +341,7 @@ public class MmsSmsProvider extends ContentProvider {
             + "pdu.msg_box AS msg_box,"
             + "d_rpt, rr, NULL AS err_type,"
             + "locked, NULL AS st, NULL AS text_only,"
-            + "phone_id, NULL AS recipient_ids";
+            + "phone_id, NULL AS recipient_ids, NULL AS is_rcs";
 
     private static final String THREADS_BY_PHONE_ID_WHERE =
             "_id in (select thread_id from sms where phone_id=? " +
