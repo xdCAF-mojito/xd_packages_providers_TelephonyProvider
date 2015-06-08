@@ -840,37 +840,37 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                    "seen INTEGER DEFAULT 0," +
                    "priority INTEGER DEFAULT -1," +
                    "favourite INTEGER DEFAULT 0," +
-                   "rcs_message_id    TEXT,  " +
-                   "rcs_data     TEXT,   " +
-                   "rcs_filename   TEXT,      " +
-                   "rcs_filesize   LONG,  " +
-                   "rcs_mime_type   TEXT,      " +
-                   "rcs_msg_type   INTEGER DEFAULT -1,   " +
-                   "rcs_send_receive   INTEGER, " +
-                   "rcs_is_read   INTEGER, " +
-                   "rcs_msg_state   INTEGER,     " +
-                   "rcs_chat_type   INTEGER,    " +
-                   "rcs_thread_id   TEXT,       " +
-                   "rcs_conversation_id     TEXT,   " +
-                   "rcs_contribution_id   TEXT, " +
-                   "rcs_file_selector   TEXT,   " +
-                   "rcs_file_transfer_ext   TEXT," +
-                   "rcs_file_transfer_id   TEXT, " +
-                   "rcs_file_icon   TEXT,       " +
-                   "rcs_burn_flag   INTEGER  DEFAULT -1, " +
-                   "rcs_barcycle   INTEGER,    " +
-                   "rcs_header   TEXT,    " +
-                   "is_rcs   INTEGER DEFAULT -1," +
+                   "rcs_message_id TEXT," +
+                   "rcs_data TEXT," +
+                   "rcs_filename TEXT," +
+                   "rcs_filesize LONG," +
+                   "rcs_mime_type TEXT," +
+                   "rcs_msg_type INTEGER DEFAULT -1," +
+                   "rcs_send_receive INTEGER," +
+                   "rcs_is_read INTEGER," +
+                   "rcs_msg_state INTEGER," +
+                   "rcs_chat_type INTEGER," +
+                   "rcs_thread_id TEXT, " +
+                   "rcs_conversation_id TEXT," +
+                   "rcs_contribution_id TEXT," +
+                   "rcs_file_selector TEXT," +
+                   "rcs_file_transfer_ext TEXT," +
+                   "rcs_file_transfer_id TEXT," +
+                   "rcs_file_icon TEXT," +
+                   "rcs_burn_flag INTEGER DEFAULT -1," +
+                   "rcs_barcycle INTEGER," +
+                   "rcs_header TEXT," +
+                   "is_rcs INTEGER DEFAULT -1," +
                    "rcs_have_attach INTEGER DEFAULT -1," +
                    "rcs_path TEXT," +
                    "rcs_is_burn INTEGER,  "+
-                   "rcs_is_download INTEGER DEFAULT 0 ,  "+
-                   "rcs_play_time INTEGER DEFAULT 0 ,  "+
-                   "rcs_file_size INTEGER DEFAULT 0 ,  "+
-                   "rcs_id INTEGER DEFAULT -1, "+
-                   "rcs_thumb_path TEXT, " +
-                   "rcs_burn_body TEXT, " +
-                   "rcs_nmsg_state TEXT " +
+                   "rcs_is_download INTEGER DEFAULT 0,"+
+                   "rcs_play_time INTEGER DEFAULT 0,"+
+                   "rcs_file_size INTEGER DEFAULT 0,"+
+                   "rcs_id INTEGER DEFAULT -1,"+
+                   "rcs_thumb_path TEXT," +
+                   "rcs_burn_body TEXT," +
+                   "rcs_nmsg_state TEXT" +
                    ");");
 
         /**
