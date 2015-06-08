@@ -86,6 +86,7 @@ public class TelephonyProvider extends ContentProvider
     private static final String COLUMN_APN_ID = "apn_id";
 
     private static final String PARTNER_APNS_PATH = "etc/apns-conf.xml";
+    private static final String REGIONAL_APNS_PATH = "etc/regional-apns-conf.xml";
 
     private static final String READ_ONLY = "read_only";
     private static final String LOCALIZED_NAME = "localized_name";
@@ -268,35 +269,69 @@ public class TelephonyProvider extends ContentProvider
                 parser.close();
             }
 
-            // Read external APNS data (partner-provided)
-            XmlPullParser confparser = null;
-            // Environment.getRootDirectory() is a fancy way of saying ANDROID_ROOT or "/system".
-            File confFile = new File(Environment.getRootDirectory(), PARTNER_APNS_PATH);
-            FileReader confreader = null;
             try {
-                confreader = new FileReader(confFile);
+                // Read external APNS data (partner-provided)
+                File confFile = new File(Environment.getRootDirectory(), PARTNER_APNS_PATH);
+                FileReader confreader = new FileReader(confFile);
+                XmlPullParser confparser = getXmlParser(confreader);
+
+                if (confparser != null) {
+                    // Sanity check. Force internal version and confidential versions to agree
+                    int confversion = Integer.parseInt(confparser.
+                            getAttributeValue(null, "version"));
+                    if (publicversion != confversion) {
+                        throw new IllegalStateException("Internal APNS file version doesn't match "
+                                + confFile.getAbsolutePath());
+                    }
+                    loadApns(db, confparser);
+
+                    try {
+                        if (confreader != null) {
+                            confreader.close();
+                            confreader = null;
+                        }
+                        confparser = null;
+                    } catch (IOException e) { }
+                }
+
+                confFile = new File(Environment.getRootDirectory(), REGIONAL_APNS_PATH);
+                if (confFile.exists()) {
+                    confreader = new FileReader(confFile);
+                    confparser = getXmlParser(confreader);
+                    if (confparser != null) {
+                        loadRegionalApns(db, confparser);
+
+                        try {
+                            if (confreader != null) {
+                                confreader.close();
+                                confreader = null;
+                            }
+                            confparser = null;
+                        } catch (IOException e) { }
+                    }
+                } else {
+                    if (DBG) log("Regional apns file not found");
+                }
+            } catch (FileNotFoundException e) {
+                // It's ok if the file isn't found. It means there isn't a confidential file
+                // Log.e(TAG, "File not found: '" + confFile.getAbsolutePath() + "'");
+            }
+
+            if (VDBG) log("dbh.initDatabase:- db=" + db);
+        }
+
+        private XmlPullParser getXmlParser(FileReader confreader) {
+            XmlPullParser confparser = null;
+            try {
                 confparser = Xml.newPullParser();
                 confparser.setInput(confreader);
                 XmlUtils.beginDocument(confparser, "apns");
 
-                // Sanity check. Force internal version and confidential versions to agree
-                int confversion = Integer.parseInt(confparser.getAttributeValue(null, "version"));
-                if (publicversion != confversion) {
-                    throw new IllegalStateException("Internal APNS file version doesn't match "
-                            + confFile.getAbsolutePath());
-                }
-
-                loadApns(db, confparser);
-            } catch (FileNotFoundException e) {
-                // It's ok if the file isn't found. It means there isn't a confidential file
-                // Log.e(TAG, "File not found: '" + confFile.getAbsolutePath() + "'");
             } catch (Exception e) {
-                loge("Exception while parsing '" + confFile.getAbsolutePath() + "'" + e);
-            } finally {
-                try { if (confreader != null) confreader.close(); } catch (IOException e) { }
+                loge("Exception while parsing apns xml file" + e);
             }
-            if (VDBG) log("dbh.initDatabase:- db=" + db);
 
+            return confparser;
         }
 
         @Override
@@ -569,6 +604,109 @@ public class TelephonyProvider extends ContentProvider
                     db.endTransaction();
                 }
             }
+        }
+
+        /*
+         * Read apns from regional xml file one by one and update them to database
+         * - Replace apn if a match is found from telephony database,
+         * - Add apn if there is no match found from database
+         * @param db the sqlite database to write to
+         * @param parser the xml parser
+         *
+         */
+        private void loadRegionalApns(SQLiteDatabase db, XmlPullParser parser) {
+            if (DBG) log("Reading regional apns file");
+
+            try {
+                String[] apnParams = {Telephony.Carriers.NUMERIC,
+                        Telephony.Carriers.APN,
+                        Telephony.Carriers.NAME,
+                        Telephony.Carriers.TYPE};
+
+                db.beginTransaction();
+                XmlUtils.nextElement(parser);
+                while (parser.getEventType() != XmlPullParser.END_DOCUMENT) {
+                    boolean apnModified = false;
+                    ContentValues row = getRow(parser);
+                    if (row == null) {
+                        throw new XmlPullParserException("Expected 'apn' tag", parser, null);
+                    }
+                    row = setDefaultValue(row);
+
+                    /* Construct sqlite query with numeric and apn of xml entry and
+                     * run it on telephony db.
+                     * If a unique match is found, replace it with the apn from xml file.
+                     * Else if multiple apn entries are found with this query,
+                     * re-execute query by adding name, type parameters as well.
+                     * If multiple apn entries are still found with all of these fields, just
+                     * add apn to db.
+                     */
+                    String selection = apnParams[0] + "=" + row.getAsString(apnParams[0]);
+                    for (int i = 0; i < apnParams.length-1; i++) {
+                        selection += " AND " + apnParams[i+1] + "=?";
+                        if (DBG) log("loadRegionalApns: selection: " + selection);
+
+                        //Create a selectionArgs array with values to be passed to sqlite query
+                        String selectionArgs[] = new String[i+1];
+                        for (int j = 0; j <= i; j++) {
+                            selectionArgs[j] = (row.getAsString(apnParams[j+1])).trim();
+                            if (DBG) log("loadRegionalApns: selectionArgs: " + selectionArgs[j]);
+                        }
+
+                        int result = formatApnsInDB(db, row, selection, selectionArgs);
+                        if (result <= 1) {
+                            apnModified = true;
+                            break;
+                        }
+                     }
+
+                     if (!apnModified) {
+                         if (DBG) log("loadRegionalApns: Multiple apns found" +
+                                 " in Telephony Database." +
+                                 " Adding regional apn as a new entry");
+                         db.insert(CARRIERS_TABLE, null, row);
+                     }
+                     XmlUtils.nextElement(parser);
+                }
+                db.setTransactionSuccessful();
+            } catch (XmlPullParserException e) {
+                loge("Got XmlPullParserException while loading apns." + e);
+            } catch (IOException e) {
+                loge("Got IOException while loading apns." + e);
+            } catch (SQLException e) {
+                loge("Got SQLException while loading apns." + e);
+            } finally {
+                db.endTransaction();
+            }
+        }
+
+        private int formatApnsInDB(SQLiteDatabase db, ContentValues row,
+                String selection, String[] selectionArgs) {
+            int apnCount = 0;
+            String apn = selectionArgs[0];
+
+            try {
+                Cursor cursor = db.query(CARRIERS_TABLE, null, selection,
+                        selectionArgs, null, null, null);
+                if (cursor != null) {
+                    apnCount = cursor.getCount();
+                    if (VDBG) log("apn count: " + apnCount);
+                    if (apnCount > 1) {
+                        if (DBG) log("Multiple apns found in db with same values");
+                    } else if (apnCount == 1) {
+                        if (DBG) log("Replacing apn in db with regional apn: " + apn);
+                        db.update(CARRIERS_TABLE, row, selection, selectionArgs);
+                    } else {
+                        if (DBG) log("Adding regional apn to db: " + apn);
+                        db.insert(CARRIERS_TABLE, null, row);
+                    }
+                    cursor.close();
+                }
+            } catch (SQLException e) {
+                loge("Got SQLException while loading apns." + e);
+            }
+
+            return apnCount;
         }
 
         static public ContentValues setDefaultValue(ContentValues values) {
