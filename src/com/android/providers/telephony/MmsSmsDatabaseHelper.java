@@ -47,6 +47,8 @@ import android.util.Log;
 
 import com.google.android.mms.pdu.EncodedStringValue;
 import com.google.android.mms.pdu.PduHeaders;
+import com.suntek.mway.rcs.client.aidl.common.RcsColumns;
+import com.suntek.rcs.ui.common.provider.RcsMessageProviderUtils;
 
 public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
     private static final String TAG = "MmsSmsDatabaseHelper";
@@ -166,7 +168,15 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
     private static boolean sFakeLowStorageTest = false;     // for testing only
 
     static final String DATABASE_NAME = "mmssms.db";
-    static final int DATABASE_VERSION = 64;
+    static final int DATABASE_VERSION = 65;
+
+    /**
+     * If the RCS is not supported, the RCS related columns should not be added to the tables in
+     * database. And the query projections should not return any RCS columns.  This value is 'false'
+     * by default.
+     */
+    private static boolean mUseRcsColumns;
+
     private final Context mContext;
     private LowStorageMonitor mLowStorageMonitor;
 
@@ -177,6 +187,8 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
         super(context, DATABASE_NAME, null, DATABASE_VERSION);
 
         mContext = context;
+        mUseRcsColumns = context.getResources().getBoolean(
+                R.bool.config_using_rcs_cloumns);
     }
 
     /**
@@ -452,6 +464,11 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
         createMmsTriggers(db);
         createWordsTables(db);
         createIndices(db);
+        if (mUseRcsColumns) {
+            RcsMessageProviderUtils.createRcsOneToManyMesageStatusTable(db);
+            RcsMessageProviderUtils.createRcsThreadUpdateTriggers(db);
+        }
+
     }
 
     // When upgrading the database we need to populate the words
@@ -609,7 +626,6 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                    Mms.PHONE_ID + " INTEGER DEFAULT -1, " +
                    Mms.SEEN + " INTEGER DEFAULT 0," +
                    Mms.CREATOR + " TEXT," +
-                   "favourite INTEGER DEFAULT 0," +
                    Mms.TEXT_ONLY + " INTEGER DEFAULT 0" +
                    ");");
 
@@ -814,65 +830,37 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
     private void createSmsTables(SQLiteDatabase db) {
         // N.B.: Whenever the columns here are changed, the columns in
         // {@ref MmsSmsProvider} must be changed to match.
-        db.execSQL("CREATE TABLE sms (" +
-                   "_id INTEGER PRIMARY KEY," +
-                   "thread_id INTEGER," +
-                   "address TEXT," +
-                   "person INTEGER," +
-                   "date INTEGER," +
-                   "date_sent INTEGER DEFAULT 0," +
-                   "protocol INTEGER," +
-                   "read INTEGER DEFAULT 0," +
-                   "status INTEGER DEFAULT -1," + // a TP-Status value
-                                                  // or -1 if it
-                                                  // status hasn't
-                                                  // been received
-                   "type INTEGER," +
-                   "reply_path_present INTEGER," +
-                   "subject TEXT," +
-                   "body TEXT," +
-                   "service_center TEXT," +
-                   "locked INTEGER DEFAULT 0," +
-                   "sub_id INTEGER DEFAULT " + SubscriptionManager.INVALID_SUBSCRIPTION_ID + ", " +
-                   "phone_id INTEGER DEFAULT -1, " +
-                   "error_code INTEGER DEFAULT 0," +
-                   "creator TEXT," +
-                   "seen INTEGER DEFAULT 0," +
-                   "priority INTEGER DEFAULT -1," +
-                   "favourite INTEGER DEFAULT 0," +
-                   "rcs_message_id    TEXT,  " +
-                   "rcs_data     TEXT,   " +
-                   "rcs_filename   TEXT,      " +
-                   "rcs_filesize   LONG,  " +
-                   "rcs_mime_type   TEXT,      " +
-                   "rcs_msg_type   INTEGER DEFAULT -1,   " +
-                   "rcs_send_receive   INTEGER, " +
-                   "rcs_is_read   INTEGER, " +
-                   "rcs_msg_state   INTEGER,     " +
-                   "rcs_chat_type   INTEGER,    " +
-                   "rcs_thread_id   TEXT,       " +
-                   "rcs_conversation_id     TEXT,   " +
-                   "rcs_contribution_id   TEXT, " +
-                   "rcs_file_selector   TEXT,   " +
-                   "rcs_file_transfer_ext   TEXT," +
-                   "rcs_file_transfer_id   TEXT, " +
-                   "rcs_file_icon   TEXT,       " +
-                   "rcs_burn_flag   INTEGER  DEFAULT -1, " +
-                   "rcs_barcycle   INTEGER,    " +
-                   "rcs_header   TEXT,    " +
-                   "is_rcs   INTEGER DEFAULT -1," +
-                   "rcs_have_attach INTEGER DEFAULT -1," +
-                   "rcs_path TEXT," +
-                   "rcs_is_burn INTEGER,  "+
-                   "rcs_is_download INTEGER DEFAULT 0 ,  "+
-                   "rcs_play_time INTEGER DEFAULT 0 ,  "+
-                   "rcs_file_size INTEGER DEFAULT 0 ,  "+
-                   "rcs_id INTEGER DEFAULT -1, "+
-                   "rcs_thumb_path TEXT, " +
-                   "rcs_burn_body TEXT, " +
-                   "rcs_nmsg_state TEXT " +
-                   ");");
-
+        if (mUseRcsColumns) {
+            RcsMessageProviderUtils.createRcsSmsTable(db);
+        } else {
+            db.execSQL("CREATE TABLE sms (" +
+                       "_id INTEGER PRIMARY KEY," +
+                       "thread_id INTEGER," +
+                       "address TEXT," +
+                       "person INTEGER," +
+                       "date INTEGER," +
+                       "date_sent INTEGER DEFAULT 0," +
+                       "protocol INTEGER," +
+                       "read INTEGER DEFAULT 0," +
+                       "status INTEGER DEFAULT -1," + // a TP-Status value
+                                                      // or -1 if it
+                                                      // status hasn't
+                                                      // been received
+                       "type INTEGER," +
+                       "reply_path_present INTEGER," +
+                       "subject TEXT," +
+                       "body TEXT," +
+                       "service_center TEXT," +
+                       "locked INTEGER DEFAULT 0," +
+                       "sub_id INTEGER DEFAULT " + SubscriptionManager.INVALID_SUBSCRIPTION_ID +
+                       ", " +
+                       "phone_id INTEGER DEFAULT -1, " +
+                       "error_code INTEGER DEFAULT 0," +
+                       "creator TEXT," +
+                       "seen INTEGER DEFAULT 0," +
+                       "priority INTEGER DEFAULT -1" +
+                       ");");
+        }
         /**
          * This table is used by the SMS dispatcher to hold
          * incomplete partial messages until all the parts arrive.
@@ -929,22 +917,22 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
          * thread if they have the same subject (or a null subject)
          * and the same set of recipients.
          */
-        db.execSQL("CREATE TABLE threads (" +
-                   Threads._ID + " INTEGER PRIMARY KEY AUTOINCREMENT," +
-                   Threads.DATE + " INTEGER DEFAULT 0," +
-                   Threads.MESSAGE_COUNT + " INTEGER DEFAULT 0," +
-                   Threads.RECIPIENT_IDS + " TEXT," +
-                   Threads.SNIPPET + " TEXT," +
-                   Threads.SNIPPET_CHARSET + " INTEGER DEFAULT 0," +
-                   Threads.READ + " INTEGER DEFAULT 1," +
-                   Threads.ARCHIVED + " INTEGER DEFAULT 0," +
-                   Threads.TYPE + " INTEGER DEFAULT 0," +
-                   Threads.ERROR + " INTEGER DEFAULT 0," +
-                   Threads.HAS_ATTACHMENT + " INTEGER DEFAULT 0," +
-                   "top" + " INTEGER DEFAULT 0," +
-                   "top_time" + " INTEGER DEFAULT 0," +
-                   "is_group_chat" + " INTEGER DEFAULT 0);");
-
+        if (mUseRcsColumns) {
+            RcsMessageProviderUtils.createRcsThreadsTable(db);
+        } else {
+            db.execSQL("CREATE TABLE threads (" +
+                       Threads._ID + " INTEGER PRIMARY KEY AUTOINCREMENT," +
+                       Threads.DATE + " INTEGER DEFAULT 0," +
+                       Threads.MESSAGE_COUNT + " INTEGER DEFAULT 0," +
+                       Threads.RECIPIENT_IDS + " TEXT," +
+                       Threads.SNIPPET + " TEXT," +
+                       Threads.SNIPPET_CHARSET + " INTEGER DEFAULT 0," +
+                       Threads.READ + " INTEGER DEFAULT 1," +
+                       Threads.ARCHIVED + " INTEGER DEFAULT 0," +
+                       Threads.TYPE + " INTEGER DEFAULT 0," +
+                       Threads.ERROR + " INTEGER DEFAULT 0," +
+                       Threads.HAS_ATTACHMENT + " INTEGER DEFAULT 0" + ");");
+        }
         /**
          * This table stores the queue of messages to be sent/downloaded.
          */
@@ -1427,6 +1415,21 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                 db.endTransaction();
             }
             return;
+        case 64:
+            if(currentVersion <= 64) {
+                return;
+            }
+            db.beginTransaction();
+            try {
+                upgradeDatabaseToVersion65(db);
+                db.setTransactionSuccessful();
+            } catch (Throwable ex) {
+                Log.e(TAG, ex.getMessage(), ex);
+                break;
+            } finally {
+                db.endTransaction();
+            }
+            return;
         }
 
         Log.e(TAG, "Destroying all old data.");
@@ -1665,7 +1668,7 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
             db.execSQL("ALTER TABLE " + SmsProvider.TABLE_RAW +" ADD COLUMN "
                     + "favorited" + " INTEGER DEFAULT 0");
             db.execSQL("ALTER TABLE " + SmsProvider.TABLE_RAW +" ADD COLUMN "
-            + "rcs_message_id" + " INTEGER DEFAULT -1");
+            + RcsColumns.SmsRcsColumns.RCS_MESSAGE_ID + " INTEGER DEFAULT -1");
             db.execSQL("ALTER TABLE " + SmsProvider.TABLE_SMS + " ADD COLUMN "
                     + "priority INTEGER DEFAULT -1");
             // Try to update the "priority" column with existing "pri" column.
@@ -1736,6 +1739,16 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
         db.execSQL("ALTER TABLE sms ADD COLUMN rcs_thumb_path TEXT");
         db.execSQL("ALTER TABLE sms ADD COLUMN rcs_burn_body TEXT");
         db.execSQL("ALTER TABLE sms ADD COLUMN rcs_nmsg_state TEXT");
+    }
+
+    // add rcs rebuild columns.
+    private void upgradeDatabaseToVersion65(SQLiteDatabase db) {
+        if (mUseRcsColumns) {
+            RcsMessageProviderUtils.upgradeDatabaseToVersion65(db);
+        } else {
+            Log.d(TAG, "calling upgradeDatabaseToVersion65,"
+                    + "but it is not rcs version, do nothing");
+        }
     }
 
     // Try to copy data from existing src column to new column which supposed
@@ -2081,5 +2094,9 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                    "  (SELECT DISTINCT pdu.thread_id FROM part " +
                    "   JOIN pdu ON pdu._id=part.mid " +
                    "   WHERE part.ct != 'text/plain' AND part.ct != 'application/smil')");
+    }
+
+    public boolean getUseRcsColumns() {
+        return mUseRcsColumns;
     }
 }

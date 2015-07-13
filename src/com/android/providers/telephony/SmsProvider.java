@@ -66,6 +66,8 @@ import com.android.internal.telephony.SmsHeader;
 import com.android.internal.telephony.cdma.sms.BearerData;
 import com.android.internal.telephony.cdma.sms.CdmaSmsAddress;
 import com.android.internal.telephony.cdma.sms.UserData;
+import com.suntek.rcs.ui.common.provider.RcsMessageProviderUtils;
+import com.suntek.rcs.ui.common.provider.RcsMessageProviderConstants;
 
 public class SmsProvider extends ContentProvider {
     private static final Uri NOTIFICATION_URI = Uri.parse("content://sms");
@@ -99,7 +101,7 @@ public class SmsProvider extends ContentProvider {
      * messages from the ICC.  Columns whose names begin with "is_"
      * have either "true" or "false" as their values.
      */
-    private final static String[] ICC_COLUMNS = new String[] {
+    private final static String[] DEFAULT_ICC_COLUMNS = new String[] {
         // N.B.: These columns must appear in the same order as the
         // calls to add appear in convertIccToSms.
         "service_center_address",       // getServiceCenterAddress
@@ -116,27 +118,15 @@ public class SmsProvider extends ContentProvider {
         "error_code",                   // Always 0
         "_id",
         "phone_id",
-        //RCS column
-        "rcs_path" ,
-        "rcs_thumb_path" ,
-        "rcs_msg_type" ,
-        "rcs_id",
-        "rcs_burn_flag",
-        "rcs_is_burn",
-        "rcs_msg_state",
-        "rcs_is_download",
-        "rcs_mime_type",
-        "favourite",
-        "rcs_file_size",
-        "rcs_play_time",
-        "rcs_message_id",
-        "rcs_chat_type"
     };
+
+    private static String[] ICC_COLUMNS = DEFAULT_ICC_COLUMNS;
 
     @Override
     public boolean onCreate() {
         setAppOps(AppOpsManager.OP_READ_SMS, AppOpsManager.OP_WRITE_SMS);
         mOpenHelper = MmsSmsDatabaseHelper.getInstance(getContext());
+        setIccColumns();
         return true;
     }
 
@@ -314,39 +304,57 @@ public class SmsProvider extends ContentProvider {
                 type = Sms.MESSAGE_TYPE_OUTBOX;
                 break;
         }
-        Object[] row = new Object[28];
-        row[0] = message.getServiceCenterAddress();
-        row[1] = (type == Sms.MESSAGE_TYPE_INBOX)
-                ? message.getDisplayOriginatingAddress()
-                : message.getRecipientAddress();
-        row[2] = String.valueOf(message.getMessageClass());
-        row[3] = message.getDisplayMessageBody();
-        row[4] = message.getTimestampMillis();
-        row[5] = statusOnIcc;
-        row[6] = message.getIndexOnIcc();
-        row[7] = message.isStatusReportMessage();
-        row[8] = "sms";
-        row[9] = type;
-        row[10] = 0;      // locked
-        row[11] = 0;      // error_code
-        row[12] = id;
-        row[13] = phoneId;
-        //RCS COLUMN default values
-        row[14] = null;
-        row[15] = null;
-        row[16] = -1;
-        row[17] = -1;
-        row[18] = -1;
-        row[19] = null;
-        row[20] = null;
-        row[21] = 0;
-        row[22] = null;
-        row[23] = 0;
-        row[24] = 0;
-        row[25] = 0;
-        row[26] = null;
-        row[27] = null;
-        return row;
+       if (MmsSmsDatabaseHelper.getInstance(getContext())
+                .getUseRcsColumns()) {
+            Object[] row = new Object[25];
+            row[0] = message.getServiceCenterAddress();
+            row[1] = (type == Sms.MESSAGE_TYPE_INBOX)
+                    ? message.getDisplayOriginatingAddress()
+                    : message.getRecipientAddress();
+            row[2] = String.valueOf(message.getMessageClass());
+            row[3] = message.getDisplayMessageBody();
+            row[4] = message.getTimestampMillis();
+            row[5] = statusOnIcc;
+            row[6] = message.getIndexOnIcc();
+            row[7] = message.isStatusReportMessage();
+            row[8] = "sms";
+            row[9] = type;
+            row[10] = 0;      // locked
+            row[11] = 0;      // error_code
+            row[12] = id;
+            row[13] = phoneId;
+            row[14] = null;
+            row[15] = null;
+            row[16] = -1;
+            row[17] = -1;
+            row[18] = -1;
+            row[19] = -1;
+            row[20] = null;
+            row[21] = 0;
+            row[22] = 0;
+            row[23] = 0;
+            row[24] = 0;
+            return row;
+        } else {
+            Object[] row = new Object[14];
+            row[0] = message.getServiceCenterAddress();
+            row[1] = (type == Sms.MESSAGE_TYPE_INBOX)
+                    ? message.getDisplayOriginatingAddress()
+                    : message.getRecipientAddress();
+            row[2] = String.valueOf(message.getMessageClass());
+            row[3] = message.getDisplayMessageBody();
+            row[4] = message.getTimestampMillis();
+            row[5] = statusOnIcc;
+            row[6] = message.getIndexOnIcc();
+            row[7] = message.isStatusReportMessage();
+            row[8] = "sms";
+            row[9] = type;
+            row[10] = 0;      // locked
+            row[11] = 0;      // error_code
+            row[12] = id;
+            row[13] = phoneId;
+            return row;
+        }
     }
 
     /**
@@ -1317,5 +1325,11 @@ public class SmsProvider extends ContentProvider {
         sConversationProjectionMap.put(Sms.Conversations.MESSAGE_COUNT,
             "groups.msg_count AS msg_count");
         sConversationProjectionMap.put("delta", null);
+    }
+
+    private void setIccColumns() {
+        boolean useRcsColumns = MmsSmsDatabaseHelper.getInstance(getContext()).getUseRcsColumns();
+        ICC_COLUMNS = useRcsColumns ?
+                RcsMessageProviderConstants.RCS_ICC_COLUMNS : DEFAULT_ICC_COLUMNS;
     }
 }
