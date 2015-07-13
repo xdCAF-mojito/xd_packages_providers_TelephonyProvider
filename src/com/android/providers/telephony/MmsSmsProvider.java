@@ -42,6 +42,8 @@ import android.text.TextUtils;
 import android.util.Log;
 
 import com.google.android.mms.pdu.PduHeaders;
+import com.suntek.rcs.ui.common.provider.RcsMessageProviderUtils;
+import com.suntek.rcs.ui.common.provider.RcsMessageProviderConstants;
 
 import java.util.Arrays;
 import java.util.HashSet;
@@ -105,6 +107,14 @@ public class MmsSmsProvider extends ContentProvider {
     private static final int URI_UPDATE_THREAD_DATE                = 24;
     private static final int URI_FAVOURITE_MESSAGES                = 25;
     private static final int URI_UPDATE_THREAD_TOP                 = 26;
+    // Add for RCS device api
+    private static final int URI_DEVICE_API_MESSAGE                = 27;
+    private static final int URI_DEVICE_API_MESSAGE_TYPE           = 28;
+    // Add for 1-n message status.
+    private static final int URI_ONE_TO_MANY_MESSAGE_STATUS        = 29;
+
+    private static boolean sIsRcsUriAdded = false;
+
     // Escape character
     private static final char SEARCH_ESCAPE_CHARACTER = '!';
 
@@ -144,7 +154,7 @@ public class MmsSmsProvider extends ContentProvider {
     // SMS ("sms") message tables.
     private static final String[] MMS_SMS_COLUMNS =
             { BaseColumns._ID, Mms.DATE, Mms.DATE_SENT, Mms.READ, Mms.THREAD_ID, Mms.LOCKED,
-                     Mms.SUBSCRIPTION_ID, Mms.PHONE_ID, "favourite"};
+                     Mms.SUBSCRIPTION_ID, Mms.PHONE_ID};
 
     // These are the columns that appear only in the MMS message
     // table.
@@ -159,13 +169,11 @@ public class MmsSmsProvider extends ContentProvider {
 
     // These are the columns that appear only in the SMS message
     // table.
-    private static final String[] SMS_ONLY_COLUMNS =
+    private static final String[] DEFAULT_SMS_ONLY_COLUMNS =
             { "address", "body", "person", "reply_path_present",
-              "service_center", "status", "subject", "type", "error_code", "priority", "rcs_path",
-              "rcs_thumb_path", "is_rcs", "rcs_mime_type", "rcs_msg_type", "rcs_chat_type",
-              "favourite", "rcs_is_burn", "rcs_id", "rcs_msg_state", "rcs_burn_flag",
-              "rcs_is_download", "rcs_file_size", "rcs_play_time", "rcs_burn_body",
-              "rcs_message_id", "rcs_nmsg_state" };
+              "service_center", "status", "subject", "type", "error_code", "priority"};
+
+    private static String[] SMS_ONLY_COLUMNS = DEFAULT_SMS_ONLY_COLUMNS;
 
     // These are all the columns that appear in the "threads" table.
     private static final String[] THREADS_COLUMNS = {
@@ -244,20 +252,6 @@ public class MmsSmsProvider extends ContentProvider {
 
     private static final String SMS_PROJECTION = "'sms' AS transport_type, _id, thread_id,"
             + "address, body, phone_id,"
-            + "rcs_path, "
-            + "rcs_thumb_path, "
-            + "rcs_msg_type, "
-            + "rcs_id, "
-            + "rcs_burn_flag, "
-            + "rcs_is_burn, "
-            + "rcs_is_download, "
-            + "rcs_msg_state, "
-            + "rcs_mime_type, "
-            + "favourite, "
-            + "rcs_file_size, "
-            + "rcs_play_time, "
-            + "rcs_message_id, "
-            + "rcs_chat_type, "
             + "date, date_sent, read, type,"
             + "status, locked, NULL AS error_code,"
             + "NULL AS sub, NULL AS sub_cs, date, date_sent, read,"
@@ -265,23 +259,10 @@ public class MmsSmsProvider extends ContentProvider {
             + "NULL AS msg_box,"
             + "NULL AS d_rpt, NULL AS rr, NULL AS err_type,"
             + "locked, NULL AS st, NULL AS text_only,"
-            + "phone_id, NULL AS recipient_ids, is_rcs";
+            + "phone_id, NULL AS recipient_ids";
+
     private static final String MMS_PROJECTION = "'mms' AS transport_type, pdu._id, thread_id,"
             + "addr.address AS address, part.text as body, phone_id,"
-            + "NULL AS rcs_path,"
-            + "NULL AS rcs_thumb_path,"
-            + "NULL AS rcs_msg_type,"
-            + "NULL AS rcs_id,"
-            + "NULL AS rcs_burn_flag,"
-            + "NULL AS rcs_is_burn,"
-            + "NULL AS rcs_is_download,"
-            + "NULL AS rcs_msg_state, "
-            + "NULL AS rcs_mime_type, "
-            + "NULL AS favourite,"
-            + "NULL AS rcs_file_size,"
-            + "NULL AS rcs_play_time,"
-            + "NULL AS rcs_message_id,"
-            + "NULL AS rcs_chat_type,"
             + "pdu.date * 1000 AS date, date_sent, read, NULL AS type,"
             + "NULL AS status, locked, NULL AS error_code,"
             + "sub, sub_cs, date, date_sent, read,"
@@ -289,25 +270,11 @@ public class MmsSmsProvider extends ContentProvider {
             + "pdu.msg_box AS msg_box,"
             + "d_rpt, rr, NULL AS err_type,"
             + "locked, NULL AS st, NULL AS text_only,"
-            + "phone_id, NULL AS recipient_ids, NULL AS is_rcs";
+            + "phone_id, NULL AS recipient_ids";
 
     private static final String MMS_PROJECTION_FOR_SUBJECT_SEARCH =
             "'mms' AS transport_type, pdu._id, thread_id,"
             + "addr.address AS address, pdu.sub as body, phone_id,"
-            + "NULL AS rcs_path,"
-            + "NULL AS rcs_thumb_path,"
-            + "NULL AS rcs_msg_type,"
-            + "NULL AS rcs_id,"
-            + "NULL AS rcs_burn_flag,"
-            + "NULL AS rcs_is_burn,"
-            + "NULL AS rcs_is_download,"
-            + "NULL AS rcs_msg_state, "
-            + "NULL AS rcs_mime_type, "
-            + "NULL AS favourite,"
-            + "NULL AS rcs_file_size,"
-            + "NULL AS rcs_play_time,"
-            + "NULL AS rcs_message_id,"
-            + "NULL AS rcs_chat_type,"
             + "pdu.date * 1000 AS date, date_sent, read, NULL AS type,"
             + "NULL AS status, locked, NULL AS error_code,"
             + "sub, sub_cs, date, date_sent, read,"
@@ -315,25 +282,11 @@ public class MmsSmsProvider extends ContentProvider {
             + "pdu.msg_box AS msg_box,"
             + "d_rpt, rr, NULL AS err_type,"
             + "locked, NULL AS st, NULL AS text_only,"
-            + "phone_id, NULL AS recipient_ids, NULL AS is_rcs";
+            + "phone_id, NULL AS recipient_ids";
 
     private static final String MMS_PROJECTION_FOR_NUMBER_SEARCH =
             "'mms' AS transport_type, pdu._id, thread_id,"
             + "addr.address AS address, NULL AS body, phone_id,"
-            + "NULL AS rcs_path,"
-            + "NULL AS rcs_thumb_path,"
-            + "NULL AS rcs_msg_type,"
-            + "NULL AS rcs_id,"
-            + "NULL AS rcs_burn_flag,"
-            + "NULL AS rcs_is_burn,"
-            + "NULL AS rcs_is_download,"
-            + "NULL AS rcs_msg_state,"
-            + "NULL AS rcs_mime_type, "
-            + "NULL AS favourite,"
-            + "NULL AS rcs_file_size,"
-            + "NULL AS rcs_play_time,"
-            + "NULL AS rcs_message_id,"
-            + "NULL AS rcs_chat_type,"
             + "pdu.date * 1000 AS date, date_sent, read, NULL AS type,"
             + "NULL AS status, locked, NULL AS error_code,"
             + "sub, sub_cs, date, date_sent, read,"
@@ -341,7 +294,7 @@ public class MmsSmsProvider extends ContentProvider {
             + "pdu.msg_box AS msg_box,"
             + "d_rpt, rr, NULL AS err_type,"
             + "locked, NULL AS st, NULL AS text_only,"
-            + "phone_id, NULL AS recipient_ids, NULL AS is_rcs";
+            + "phone_id, NULL AS recipient_ids";
 
     private static final String THREADS_BY_PHONE_ID_WHERE =
             "_id in (select thread_id from sms where phone_id=? " +
@@ -430,6 +383,7 @@ public class MmsSmsProvider extends ContentProvider {
         URI_MATCHER.addURI(AUTHORITY, "locked/#", URI_FIRST_LOCKED_MESSAGE_BY_THREAD_ID);
 
         URI_MATCHER.addURI(AUTHORITY, "messageIdToThread", URI_MESSAGE_ID_TO_THREAD);
+
         initializeColumnSets();
     }
 
@@ -437,10 +391,13 @@ public class MmsSmsProvider extends ContentProvider {
 
     private boolean mUseStrictPhoneNumberComparation;
 
+    private boolean mUseRcsColumns;
+
     @Override
     public boolean onCreate() {
         setAppOps(AppOpsManager.OP_READ_SMS, AppOpsManager.OP_WRITE_SMS);
         mOpenHelper = MmsSmsDatabaseHelper.getInstance(getContext());
+        setSmsRcsColumns();
         mUseStrictPhoneNumberComparation =
             getContext().getResources().getBoolean(
                     com.android.internal.R.bool.config_use_strict_phone_number_comparation);
@@ -471,7 +428,6 @@ public class MmsSmsProvider extends ContentProvider {
                                 THREADS_BY_PHONE_ID_WHERE);
                         selectionArgs = appendSelectionArgs(selectionArgs, phoneId, phoneId);
                     }
-
                     cursor = getSimpleConversations(
                             projection, selection, selectionArgs, sortOrder);
                 } else {
@@ -484,8 +440,12 @@ public class MmsSmsProvider extends ContentProvider {
                         selection, sortOrder);
                 break;
             case URI_FAVOURITE_MESSAGES:
-                cursor = getFavourateMessages(uri.getPathSegments().get(1), projection,
-                        selection, sortOrder);
+                if (mUseRcsColumns) {
+                    cursor = getFavourateMessages(uri.getPathSegments().get(1), projection,
+                            selection, sortOrder);
+                } else {
+                    throw new IllegalStateException("Only Rcs has this URI:" + uri);
+                }
                 break;
             case URI_MAILBOX_MESSAGES:
                 cursor = getMailboxMessages(
@@ -510,9 +470,8 @@ public class MmsSmsProvider extends ContentProvider {
                 break;
             case URI_THREAD_ID:
                 List<String> recipients = uri.getQueryParameters("recipient");
-                boolean isGroupChat = "1".equals(uri.getQueryParameter("isGroupChat"));
 
-                cursor = getThreadId(recipients, isGroupChat);
+                cursor = getThreadId(recipients);
                 break;
             case URI_CANONICAL_ADDRESS: {
                 String extraSelection = "_id=" + uri.getPathSegments().get(1);
@@ -654,6 +613,32 @@ public class MmsSmsProvider extends ContentProvider {
                 cursor = getFirstLockedMessage(projection, selection, sortOrder);
                 break;
             }
+            case URI_DEVICE_API_MESSAGE_TYPE: {
+                if (mUseRcsColumns) {
+                    cursor = getDeviceApiMessageByType(uri);
+                } else {
+                    throw new IllegalStateException("Only Rcs has this URI:" + uri);
+                }
+                break;
+            }
+            case URI_DEVICE_API_MESSAGE: {
+                if (mUseRcsColumns) {
+                    String queryString = RcsMessageProviderConstants.DEVICE_API_QUERY + selection;
+                    cursor = mOpenHelper.getReadableDatabase().rawQuery(queryString,
+                            EMPTY_STRING_ARRAY);
+                } else {
+                    throw new IllegalStateException("Only Rcs has this URI:" + uri);
+                }
+                break;
+            }
+            case URI_ONE_TO_MANY_MESSAGE_STATUS:
+                if (mUseRcsColumns) {
+                    cursor = db.query(RcsMessageProviderConstants.TABLE_GROUP_STATUS, projection,
+                            selection, selectionArgs, null, null, sortOrder);
+                } else {
+                    throw new IllegalStateException("Only Rcs has this URI:" + uri);
+                }
+                break;
             default:
                 throw new IllegalStateException("Unrecognized URI:" + uri);
         }
@@ -780,7 +765,7 @@ public class MmsSmsProvider extends ContentProvider {
     /**
      * Insert a record for a new thread.
      */
-    private void insertThread(String recipientIds, int numberOfRecipients, boolean isGroupChat) {
+    private void insertThread(String recipientIds, int numberOfRecipients) {
         ContentValues values = new ContentValues(5);
 
         long date = System.currentTimeMillis();
@@ -790,7 +775,6 @@ public class MmsSmsProvider extends ContentProvider {
             values.put(Threads.TYPE, Threads.BROADCAST_THREAD);
         }
         values.put(ThreadsColumns.MESSAGE_COUNT, 0);
-        values.put("is_group_chat", isGroupChat ? 1 : 0);
 
         long result = mOpenHelper.getWritableDatabase().insert(TABLE_THREADS, null, values);
         Log.d(LOG_TAG, "insertThread: created new thread_id " + result +
@@ -800,12 +784,6 @@ public class MmsSmsProvider extends ContentProvider {
                 UserHandle.USER_ALL);
     }
 
-    /**
-     * Insert a record for a new thread.
-     */
-    private void insertThread(String recipientIds, int numberOfRecipients) {
-        insertThread(recipientIds, numberOfRecipients, false);
-    }
     private static final String THREAD_QUERY =
             "SELECT _id FROM threads " + "WHERE recipient_ids=?";
 
@@ -815,7 +793,7 @@ public class MmsSmsProvider extends ContentProvider {
      * one and return it.  Callers should always use
      * Threads.getThreadId to access this information.
      */
-    private synchronized Cursor getThreadId(List<String> recipients, boolean isGroupChat) {
+    private synchronized Cursor getThreadId(List<String> recipients) {
         Set<Long> addressIds = getAddressIds(recipients);
         String recipientIds = "";
 
@@ -852,7 +830,7 @@ public class MmsSmsProvider extends ContentProvider {
 
                 Log.d(LOG_TAG, "getThreadId: create new thread_id for recipients " +
                         /*recipients*/ "xxxxxxxx");
-                insertThread(recipientIds, recipients.size(), isGroupChat);
+                insertThread(recipientIds, recipients.size());
 
                 // The thread was just created, now find it and return it.
                 cursor = db.rawQuery(THREAD_QUERY, selectionArgs);
@@ -869,15 +847,7 @@ public class MmsSmsProvider extends ContentProvider {
         }
         return cursor;
     }
-    /**
-     * Return the thread ID for this list of
-     * recipients IDs.  If no thread exists with this ID, create
-     * one and return it.  Callers should always use
-     * Threads.getThreadId to access this information.
-     */
-    private synchronized Cursor getThreadId(List<String> recipients) {
-        return getThreadId(recipients, false);
-    }
+
     private static String concatSelections(String selection1, String selection2) {
         if (TextUtils.isEmpty(selection1)) {
             return selection2;
@@ -1195,6 +1165,25 @@ public class MmsSmsProvider extends ContentProvider {
         }
 
         return mOpenHelper.getReadableDatabase().rawQuery(unionQuery,
+                EMPTY_STRING_ARRAY);
+    }
+
+    private Cursor getDeviceApiMessageByType(Uri uri) {
+        String type = uri.getQueryParameter("message_type");
+        String typeWhere = null;
+        if ("FT".equalsIgnoreCase(type)) {
+            typeWhere = " where rcs_file_transfer_id IS NOT NULL";
+        } else if ("sms".equalsIgnoreCase(type) || "mms".equalsIgnoreCase(type)) {
+            typeWhere = " where rcs_file_transfer_id IS NOT NULL and " +
+                    "rcs_message_id is not null";
+        } else if ("xml".equalsIgnoreCase(type)) {
+            typeWhere = " where rcs_file_transfer_id IS NOT NULL and " +
+                    "rcs_message_id is not null and rcs_chat_type = 3";
+        } else {
+            typeWhere = " where rcs_message_id is not null";
+        }
+        String queryString = RcsMessageProviderConstants.DEVICE_API_QUERY + typeWhere;
+        return mOpenHelper.getReadableDatabase().rawQuery(queryString,
                 EMPTY_STRING_ARRAY);
     }
 
@@ -1675,12 +1664,25 @@ public class MmsSmsProvider extends ContentProvider {
 
     @Override
     public Uri insert(Uri uri, ContentValues values) {
-        if (URI_MATCHER.match(uri) == URI_PENDING_MSG) {
-            SQLiteDatabase db = mOpenHelper.getWritableDatabase();
-            long rowId = db.insert(TABLE_PENDING_MSG, null, values);
-            return Uri.parse(uri + "/" + rowId);
+        switch(URI_MATCHER.match(uri)) {
+            case URI_PENDING_MSG:{
+                SQLiteDatabase db = mOpenHelper.getWritableDatabase();
+                long rowId = db.insert(TABLE_PENDING_MSG, null, values);
+                return Uri.parse(uri + "/" + rowId);
+            }
+            case URI_ONE_TO_MANY_MESSAGE_STATUS:{
+                if (mUseRcsColumns) {
+                    SQLiteDatabase db = mOpenHelper.getWritableDatabase();
+                    long rowId = db.insert(RcsMessageProviderConstants.TABLE_GROUP_STATUS, null,
+                            values);
+                    return Uri.parse(uri + "/" + rowId);
+                } else {
+                    throw new IllegalStateException("Only Rcs has this URI:" + uri);
+                }
+            }
+            default:
+                throw new UnsupportedOperationException(NO_DELETES_INSERTS_OR_UPDATES + uri);
         }
-        throw new UnsupportedOperationException(NO_DELETES_INSERTS_OR_UPDATES + uri);
     }
 
     @Override
@@ -1735,7 +1737,19 @@ public class MmsSmsProvider extends ContentProvider {
                 MmsSmsDatabaseHelper.updateThreadsDate(db, selection, selectionArgs);
                 break;
             case URI_UPDATE_THREAD_TOP:
-                db.update("threads", values, selection, selectionArgs);
+                if (mUseRcsColumns) {
+                    db.update("threads", values, selection, selectionArgs);
+                } else {
+                    throw new IllegalStateException("Only Rcs has this URI:" + uri);
+                }
+                break;
+            case URI_ONE_TO_MANY_MESSAGE_STATUS:
+                if (mUseRcsColumns) {
+                    db.update(RcsMessageProviderConstants.TABLE_GROUP_STATUS, values, selection,
+                            selectionArgs);
+                } else {
+                    throw new IllegalStateException("Only Rcs has this URI:" + uri);
+                }
                 break;
             default:
                 throw new UnsupportedOperationException(
@@ -1983,16 +1997,16 @@ public class MmsSmsProvider extends ContentProvider {
         String smsQuery = "";
         if (searchMode == SEARCH_MODE_CONTENT) {
             smsQuery = String.format(
-                    "SELECT %s FROM sms WHERE (body LIKE ? ESCAPE '" +
+                    "SELECT %s FROM sms WHERE (rcs_burn='-1' AND body LIKE ? ESCAPE '" +
                             SEARCH_ESCAPE_CHARACTER + "') ",
                     SMS_PROJECTION);
         } else if (searchMode == SEARCH_MODE_NUMBER && matchWhole == MATCH_BY_ADDRESS) {
             smsQuery = String.format(
-                    "SELECT %s FROM sms WHERE (address LIKE ?)",
+                    "SELECT %s FROM sms WHERE (rcs_burn='-1' AND address LIKE ?)",
                     SMS_PROJECTION);
         } else if (searchMode == SEARCH_MODE_NUMBER && matchWhole == MATCH_BY_THREAD_ID) {
             smsQuery = String.format(
-                    "SELECT %s FROM sms WHERE (thread_id in (%s))",
+                    "SELECT %s FROM sms WHERE (rcs_burn='-1' AND thread_id in (%s))",
                     SMS_PROJECTION,
                     threadIdString);
         }
@@ -2075,5 +2089,20 @@ public class MmsSmsProvider extends ContentProvider {
         }
 
         return resultString;
+    }
+
+    private void setSmsRcsColumns() {
+        if (!sIsRcsUriAdded) {
+            sIsRcsUriAdded = true;
+
+            // Add for device api
+            URI_MATCHER.addURI(AUTHORITY, "deviceApiMessage", URI_DEVICE_API_MESSAGE);
+            URI_MATCHER.addURI(AUTHORITY, "deviceApiMessage_type", URI_DEVICE_API_MESSAGE_TYPE);
+            URI_MATCHER.addURI(AUTHORITY, "oneToManyStatus", URI_ONE_TO_MANY_MESSAGE_STATUS);
+        }
+
+        mUseRcsColumns = MmsSmsDatabaseHelper.getInstance(getContext()).getUseRcsColumns();
+        SMS_ONLY_COLUMNS = mUseRcsColumns ?
+                RcsMessageProviderConstants.RCS_SMS_ONLY_COLUMNS : DEFAULT_SMS_ONLY_COLUMNS;
     }
 }
