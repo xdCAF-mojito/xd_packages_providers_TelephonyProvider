@@ -633,6 +633,9 @@ public class TelephonyProvider extends ContentProvider
                     }
                     row = setDefaultValue(row);
 
+                    String apnOperation = parser.getAttributeValue(null, "operation");
+                    if (DBG) log("loadRegionalApns: operation on apn: " + apnOperation);
+
                     /* Construct sqlite query with numeric and apn of xml entry and
                      * run it on telephony db.
                      * If a unique match is found, replace it with the apn from xml file.
@@ -653,14 +656,16 @@ public class TelephonyProvider extends ContentProvider
                             if (DBG) log("loadRegionalApns: selectionArgs: " + selectionArgs[j]);
                         }
 
-                        int result = formatApnsInDB(db, row, selection, selectionArgs);
+                        int result = formatApnsInDB(db, row, selection, selectionArgs,
+                                apnOperation);
                         if (result <= 1) {
                             apnModified = true;
                             break;
                         }
                      }
 
-                     if (!apnModified) {
+                     if (!apnModified && !(apnOperation != null &&
+                             !apnOperation.equalsIgnoreCase("delete"))) {
                          if (DBG) log("loadRegionalApns: Multiple apns found" +
                                  " in Telephony Database." +
                                  " Adding regional apn as a new entry");
@@ -681,7 +686,7 @@ public class TelephonyProvider extends ContentProvider
         }
 
         private int formatApnsInDB(SQLiteDatabase db, ContentValues row,
-                String selection, String[] selectionArgs) {
+                String selection, String[] selectionArgs, String operation) {
             int apnCount = 0;
             String apn = selectionArgs[0];
 
@@ -694,11 +699,19 @@ public class TelephonyProvider extends ContentProvider
                     if (apnCount > 1) {
                         if (DBG) log("Multiple apns found in db with same values");
                     } else if (apnCount == 1) {
-                        if (DBG) log("Replacing apn in db with regional apn: " + apn);
-                        db.update(CARRIERS_TABLE, row, selection, selectionArgs);
+                        if (operation != null && operation.equalsIgnoreCase("delete")) {
+                            if (DBG) log("Deleting apn in db: " + apn);
+                            db.delete(CARRIERS_TABLE, selection, selectionArgs);
+                        } else {
+                            if (DBG) log("Replacing apn in db with regional apn: " + apn);
+                            db.update(CARRIERS_TABLE, row, selection, selectionArgs);
+                        }
                     } else {
-                        if (DBG) log("Adding regional apn to db: " + apn);
-                        db.insert(CARRIERS_TABLE, null, row);
+                        if (!(operation != null &&
+                                operation.equalsIgnoreCase("delete"))) {
+                            if (DBG) log("Adding regional apn to db: " + apn);
+                            db.insert(CARRIERS_TABLE, null, row);
+                        }
                     }
                     cursor.close();
                 }

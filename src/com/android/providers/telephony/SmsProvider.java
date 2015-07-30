@@ -304,25 +304,25 @@ public class SmsProvider extends ContentProvider {
                 type = Sms.MESSAGE_TYPE_OUTBOX;
                 break;
         }
-        Object[] row = new Object[25];
-        row[0] = message.getServiceCenterAddress();
-        row[1] = (type == Sms.MESSAGE_TYPE_INBOX)
-                ? message.getDisplayOriginatingAddress()
-                : message.getRecipientAddress();
-        row[2] = String.valueOf(message.getMessageClass());
-        row[3] = message.getDisplayMessageBody();
-        row[4] = message.getTimestampMillis();
-        row[5] = statusOnIcc;
-        row[6] = message.getIndexOnIcc();
-        row[7] = message.isStatusReportMessage();
-        row[8] = "sms";
-        row[9] = type;
-        row[10] = 0;      // locked
-        row[11] = 0;      // error_code
-        row[12] = id;
-        row[13] = phoneId;
-        //RCS COLUMN default values
-        if (RcsMessageProviderConstants.isRcs) {
+       if (MmsSmsDatabaseHelper.getInstance(getContext())
+                .getUseRcsColumns()) {
+            Object[] row = new Object[25];
+            row[0] = message.getServiceCenterAddress();
+            row[1] = (type == Sms.MESSAGE_TYPE_INBOX)
+                    ? message.getDisplayOriginatingAddress()
+                    : message.getRecipientAddress();
+            row[2] = String.valueOf(message.getMessageClass());
+            row[3] = message.getDisplayMessageBody();
+            row[4] = message.getTimestampMillis();
+            row[5] = statusOnIcc;
+            row[6] = message.getIndexOnIcc();
+            row[7] = message.isStatusReportMessage();
+            row[8] = "sms";
+            row[9] = type;
+            row[10] = 0;      // locked
+            row[11] = 0;      // error_code
+            row[12] = id;
+            row[13] = phoneId;
             row[14] = null;
             row[15] = null;
             row[16] = -1;
@@ -334,8 +334,27 @@ public class SmsProvider extends ContentProvider {
             row[22] = 0;
             row[23] = 0;
             row[24] = 0;
+            return row;
+        } else {
+            Object[] row = new Object[14];
+            row[0] = message.getServiceCenterAddress();
+            row[1] = (type == Sms.MESSAGE_TYPE_INBOX)
+                    ? message.getDisplayOriginatingAddress()
+                    : message.getRecipientAddress();
+            row[2] = String.valueOf(message.getMessageClass());
+            row[3] = message.getDisplayMessageBody();
+            row[4] = message.getTimestampMillis();
+            row[5] = statusOnIcc;
+            row[6] = message.getIndexOnIcc();
+            row[7] = message.isStatusReportMessage();
+            row[8] = "sms";
+            row[9] = type;
+            row[10] = 0;      // locked
+            row[11] = 0;      // error_code
+            row[12] = id;
+            row[13] = phoneId;
+            return row;
         }
-        return row;
     }
 
     /**

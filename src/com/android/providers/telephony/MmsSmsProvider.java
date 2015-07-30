@@ -42,6 +42,7 @@ import android.text.TextUtils;
 import android.util.Log;
 
 import com.google.android.mms.pdu.PduHeaders;
+import com.suntek.mway.rcs.client.aidl.common.RcsColumns;
 import com.suntek.rcs.ui.common.provider.RcsMessageProviderUtils;
 import com.suntek.rcs.ui.common.provider.RcsMessageProviderConstants;
 
@@ -192,7 +193,7 @@ public class MmsSmsProvider extends ContentProvider {
 
     // These are all the columns that appear in the MMS and SMS
     // message tables.
-    private static final String[] UNION_COLUMNS =
+    private static String[] UNION_COLUMNS =
             new String[MMS_SMS_COLUMNS.length
                        + MMS_ONLY_COLUMNS.length
                        + SMS_ONLY_COLUMNS.length];
@@ -615,7 +616,8 @@ public class MmsSmsProvider extends ContentProvider {
             }
             case URI_DEVICE_API_MESSAGE_TYPE: {
                 if (mUseRcsColumns) {
-                    cursor = getDeviceApiMessageByType(uri);
+                    cursor = getDeviceApiMessageByType(uri, projection, selection,
+                            selectionArgs, sortOrder);
                 } else {
                     throw new IllegalStateException("Only Rcs has this URI:" + uri);
                 }
@@ -623,9 +625,10 @@ public class MmsSmsProvider extends ContentProvider {
             }
             case URI_DEVICE_API_MESSAGE: {
                 if (mUseRcsColumns) {
-                    String queryString = RcsMessageProviderConstants.DEVICE_API_QUERY + selection;
+                    String queryString = buildDeviceApiQuery(projection, selection,
+                            sortOrder);
                     cursor = mOpenHelper.getReadableDatabase().rawQuery(queryString,
-                            EMPTY_STRING_ARRAY);
+                            selectionArgs);
                 } else {
                     throw new IllegalStateException("Only Rcs has this URI:" + uri);
                 }
@@ -633,8 +636,8 @@ public class MmsSmsProvider extends ContentProvider {
             }
             case URI_ONE_TO_MANY_MESSAGE_STATUS:
                 if (mUseRcsColumns) {
-                    cursor = db.query(RcsMessageProviderConstants.TABLE_GROUP_STATUS, projection,
-                            selection, selectionArgs, null, null, sortOrder);
+                    cursor = db.query(RcsMessageProviderConstants.TABLE_GROUP_STATUS,
+                            projection, selection, selectionArgs, null, null, sortOrder);
                 } else {
                     throw new IllegalStateException("Only Rcs has this URI:" + uri);
                 }
@@ -1168,23 +1171,49 @@ public class MmsSmsProvider extends ContentProvider {
                 EMPTY_STRING_ARRAY);
     }
 
-    private Cursor getDeviceApiMessageByType(Uri uri) {
+    private Cursor getDeviceApiMessageByType(Uri uri, String[] projection,
+            String selection, String[] selectionArgs, String sortOrder) {
         String type = uri.getQueryParameter("message_type");
         String typeWhere = null;
         if ("FT".equalsIgnoreCase(type)) {
-            typeWhere = " where rcs_file_transfer_id IS NOT NULL";
+            typeWhere = " rcs_file_transfer_id IS NOT NULL";
         } else if ("sms".equalsIgnoreCase(type) || "mms".equalsIgnoreCase(type)) {
-            typeWhere = " where rcs_file_transfer_id IS NOT NULL and " +
-                    "rcs_message_id is not null";
+            typeWhere = " (rcs_file_transfer_id IS NOT NULL and " +
+                    "rcs_message_id is not null)";
         } else if ("xml".equalsIgnoreCase(type)) {
-            typeWhere = " where rcs_file_transfer_id IS NOT NULL and " +
-                    "rcs_message_id is not null and rcs_chat_type = 3";
+            typeWhere = " (rcs_file_transfer_id IS NOT NULL and " +
+                    "rcs_message_id is not null and rcs_chat_type = 3)";
         } else {
-            typeWhere = " where rcs_message_id is not null";
+            typeWhere = " rcs_message_id is not null";
         }
-        String queryString = RcsMessageProviderConstants.DEVICE_API_QUERY + typeWhere;
+        selection = concatSelections(typeWhere, selection);
+        String queryString = buildDeviceApiQuery(projection, selection, sortOrder);
         return mOpenHelper.getReadableDatabase().rawQuery(queryString,
-                EMPTY_STRING_ARRAY);
+                selectionArgs);
+    }
+
+    public static String buildDeviceApiQuery(String[] projection,
+            String selection, String sortOrder) {
+        SQLiteQueryBuilder deviceApiQueryBuilder = new SQLiteQueryBuilder();
+        if (projection == null || projection.length == 0) {
+            projection = RcsMessageProviderConstants.DEVICE_API_DEFAULT_PROJECT;
+        }
+        StringBuilder deviceApiTableString = new StringBuilder();
+        deviceApiTableString.append("(");
+        deviceApiTableString.append(RcsMessageProviderConstants.DEVICE_API_TABLE);
+        if (!TextUtils.isEmpty(selection)) {
+            deviceApiTableString.append(" where ( ");
+            deviceApiTableString.append(selection);
+            deviceApiTableString.append(" ) ");
+        }
+        if (!TextUtils.isEmpty(sortOrder)) {
+            deviceApiTableString.append(" ORDER BY ");
+            deviceApiTableString.append(sortOrder);
+        }
+        deviceApiTableString.append(") as deviceApi_table");
+        return deviceApiQueryBuilder.buildQueryString(false, deviceApiTableString.toString(),
+                projection, null, null, null, null, null);
+
     }
 
     private static String appendSmsSelecttion(String selection) {
@@ -1810,6 +1839,9 @@ public class MmsSmsProvider extends ContentProvider {
         int smsOnlyColumnCount = SMS_ONLY_COLUMNS.length;
         Set<String> unionColumns = new HashSet<String>();
 
+        MMS_COLUMNS.clear();
+        SMS_COLUMNS.clear();
+
         for (int i = 0; i < commonColumnCount; i++) {
             MMS_COLUMNS.add(MMS_SMS_COLUMNS[i]);
             SMS_COLUMNS.add(MMS_SMS_COLUMNS[i]);
@@ -1996,19 +2028,43 @@ public class MmsSmsProvider extends ContentProvider {
     private String getSmsQueryString(int searchMode, int matchWhole, String threadIdString) {
         String smsQuery = "";
         if (searchMode == SEARCH_MODE_CONTENT) {
-            smsQuery = String.format(
-                    "SELECT %s FROM sms WHERE (rcs_burn='-1' AND body LIKE ? ESCAPE '" +
-                            SEARCH_ESCAPE_CHARACTER + "') ",
-                    SMS_PROJECTION);
+            if (mUseRcsColumns) {
+                smsQuery = String.format(
+                        "SELECT %s FROM sms WHERE (" + RcsColumns.SmsRcsColumns.RCS_BURN +
+                        "='-1'AND body LIKE ? ESCAPE '" + SEARCH_ESCAPE_CHARACTER + "') ",
+                        SMS_PROJECTION);
+            } else {
+                smsQuery = String.format(
+                        "SELECT %s FROM sms WHERE (body LIKE ? ESCAPE '" +
+                        SEARCH_ESCAPE_CHARACTER + "') ",
+                        SMS_PROJECTION);
+            }
+
         } else if (searchMode == SEARCH_MODE_NUMBER && matchWhole == MATCH_BY_ADDRESS) {
-            smsQuery = String.format(
-                    "SELECT %s FROM sms WHERE (rcs_burn='-1' AND address LIKE ?)",
-                    SMS_PROJECTION);
+            if (mUseRcsColumns) {
+                smsQuery = String.format(
+                        "SELECT %s FROM sms WHERE (" + RcsColumns.SmsRcsColumns.RCS_BURN +
+                        "='-1' AND address LIKE ?)",
+                        SMS_PROJECTION);
+            } else {
+                smsQuery = String.format(
+                        "SELECT %s FROM sms WHERE (address LIKE ?)",
+                        SMS_PROJECTION);
+            }
         } else if (searchMode == SEARCH_MODE_NUMBER && matchWhole == MATCH_BY_THREAD_ID) {
-            smsQuery = String.format(
-                    "SELECT %s FROM sms WHERE (rcs_burn='-1' AND thread_id in (%s))",
-                    SMS_PROJECTION,
-                    threadIdString);
+            if (mUseRcsColumns) {
+                smsQuery = String.format(
+                        "SELECT %s FROM sms WHERE (" + RcsColumns.SmsRcsColumns.RCS_BURN +
+                        "='-1' AND thread_id in (%s))",
+                        SMS_PROJECTION,
+                        threadIdString);
+            } else {
+                smsQuery = String.format(
+                        "SELECT %s FROM sms WHERE (thread_id in (%s))",
+                        SMS_PROJECTION,
+                        threadIdString);
+            }
+
         }
         return smsQuery;
     }
@@ -2102,7 +2158,13 @@ public class MmsSmsProvider extends ContentProvider {
         }
 
         mUseRcsColumns = MmsSmsDatabaseHelper.getInstance(getContext()).getUseRcsColumns();
-        SMS_ONLY_COLUMNS = mUseRcsColumns ?
-                RcsMessageProviderConstants.RCS_SMS_ONLY_COLUMNS : DEFAULT_SMS_ONLY_COLUMNS;
+        if (!mUseRcsColumns) {
+            return;
+        }
+        SMS_ONLY_COLUMNS = RcsMessageProviderConstants.RCS_SMS_ONLY_COLUMNS;
+        UNION_COLUMNS = new String[MMS_SMS_COLUMNS.length
+                           + MMS_ONLY_COLUMNS.length
+                           + SMS_ONLY_COLUMNS.length];
+        initializeColumnSets();
     }
 }

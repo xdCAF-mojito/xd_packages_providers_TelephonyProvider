@@ -931,8 +931,7 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                        Threads.ARCHIVED + " INTEGER DEFAULT 0," +
                        Threads.TYPE + " INTEGER DEFAULT 0," +
                        Threads.ERROR + " INTEGER DEFAULT 0," +
-                       Threads.HAS_ATTACHMENT + " INTEGER DEFAULT 0" +
-                       ");");
+                       Threads.HAS_ATTACHMENT + " INTEGER DEFAULT 0" + ");");
         }
         /**
          * This table stores the queue of messages to be sent/downloaded.
@@ -1746,6 +1745,9 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
     private void upgradeDatabaseToVersion65(SQLiteDatabase db) {
         if (mUseRcsColumns) {
             RcsMessageProviderUtils.upgradeDatabaseToVersion65(db);
+        } else {
+            Log.d(TAG, "calling upgradeDatabaseToVersion65,"
+                    + "but it is not rcs version, do nothing");
         }
     }
 
@@ -2095,6 +2097,6 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
     }
 
     public boolean getUseRcsColumns() {
-        return this.mUseRcsColumns;
+        return mUseRcsColumns;
     }
 }
