@@ -699,9 +699,14 @@ public class TelephonyProvider extends ContentProvider
                     if (apnCount > 1) {
                         if (DBG) log("Multiple apns found in db with same values");
                     } else if (apnCount == 1) {
-                        if (operation != null && operation.equalsIgnoreCase("delete")) {
-                            if (DBG) log("Deleting apn in db: " + apn);
-                            db.delete(CARRIERS_TABLE, selection, selectionArgs);
+                        if (operation != null) {
+                            if (operation.equalsIgnoreCase("delete")) {
+                                if (DBG) log("Deleting apn in db: " + apn);
+                                db.delete(CARRIERS_TABLE, selection, selectionArgs);
+                            } else if (operation.equalsIgnoreCase("add")) {
+                                if (DBG) log("Adding regional apn to db: " + apn);
+                                db.insert(CARRIERS_TABLE, null, row);
+                            }
                         } else {
                             if (DBG) log("Replacing apn in db with regional apn: " + apn);
                             db.update(CARRIERS_TABLE, row, selection, selectionArgs);
