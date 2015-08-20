@@ -1280,7 +1280,8 @@ public class MmsSmsProvider extends ContentProvider {
         String appendSmsSelection = appendSmsSelecttion(selection);
         String appendMmsSelection = appendMmsSelecttion(selection);
         String mmsSelection = Mms.MESSAGE_BOX + compare + mailboxId
-                + " AND thread_id = threads._id " + appendMmsSelection;
+                + " AND thread_id = threads._id AND m_type != "
+                + PduHeaders.MESSAGE_TYPE_DELIVERY_IND + appendMmsSelection;
         String smsSelection = "(sms." + Sms.TYPE + compare + mailboxId
                 + " AND thread_id = threads._id" + appendSmsSelection
                 + ")" + " OR (sms." + Sms.TYPE + compare + mailboxId
