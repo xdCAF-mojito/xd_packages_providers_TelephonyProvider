@@ -467,6 +467,7 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
         if (mUseRcsColumns) {
             RcsMessageProviderUtils.createRcsOneToManyMesageStatusTable(db);
             RcsMessageProviderUtils.createRcsThreadUpdateTriggers(db);
+            RcsMessageProviderUtils.createDeviceApiSqlView(db);
         }
 
     }

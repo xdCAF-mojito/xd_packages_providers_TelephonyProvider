@@ -108,11 +108,14 @@ public class MmsSmsProvider extends ContentProvider {
     private static final int URI_UPDATE_THREAD_DATE                = 24;
     private static final int URI_FAVOURITE_MESSAGES                = 25;
     private static final int URI_UPDATE_THREAD_TOP                 = 26;
-    // Add for RCS device api
-    private static final int URI_DEVICE_API_MESSAGE                = 27;
-    private static final int URI_DEVICE_API_MESSAGE_TYPE           = 28;
     // Add for 1-n message status.
-    private static final int URI_ONE_TO_MANY_MESSAGE_STATUS        = 29;
+    private static final int URI_ONE_TO_MANY_MESSAGE_STATUS        = 27;
+    // Add for RCS device api delete message
+    private static final int URI_DELETE_CONVERSATION_MESSAGE       = 28;
+    private static final int URI_DEVICE_API_CONVERSATIONS          = 29;
+    private static final int URI_DEVICE_API_MESSAGES               = 30;
+    private static final int URI_DEVICE_API_PUBLIC_ACCOUNT_MESSAGE = 31;
+    private static final int URI_DEVICE_API_FILE_TRANSFER_MESSAGE  = 32;
 
     private static boolean sIsRcsUriAdded = false;
 
@@ -614,26 +617,42 @@ public class MmsSmsProvider extends ContentProvider {
                 cursor = getFirstLockedMessage(projection, selection, sortOrder);
                 break;
             }
-            case URI_DEVICE_API_MESSAGE_TYPE: {
+            case URI_DEVICE_API_CONVERSATIONS:
                 if (mUseRcsColumns) {
-                    cursor = getDeviceApiMessageByType(uri, projection, selection,
-                            selectionArgs, sortOrder);
+                    cursor = db.query(
+                            RcsMessageProviderConstants.DeviceApiViews.MESSAGE_CONVERSATION,
+                            projection, selection, selectionArgs, null, null, sortOrder);
                 } else {
                     throw new IllegalStateException("Only Rcs has this URI:" + uri);
                 }
                 break;
-            }
-            case URI_DEVICE_API_MESSAGE: {
+            case URI_DEVICE_API_MESSAGES:
                 if (mUseRcsColumns) {
-                    String queryString = buildDeviceApiQuery(projection, selection,
-                            sortOrder);
-                    cursor = mOpenHelper.getReadableDatabase().rawQuery(queryString,
-                            selectionArgs);
+                    cursor = db.query(
+                            RcsMessageProviderConstants.DeviceApiViews.DEVICE_API_MESSAGES,
+                            projection, selection, selectionArgs, null, null, sortOrder);
                 } else {
                     throw new IllegalStateException("Only Rcs has this URI:" + uri);
                 }
                 break;
-            }
+            case URI_DEVICE_API_PUBLIC_ACCOUNT_MESSAGE:
+                if (mUseRcsColumns) {
+                    cursor = db.query(
+                            RcsMessageProviderConstants.DeviceApiViews.PUBLIC_ACCOUNT_MESSAGES,
+                            projection, selection, selectionArgs, null, null, sortOrder);
+                } else {
+                    throw new IllegalStateException("Only Rcs has this URI:" + uri);
+                }
+                break;
+            case URI_DEVICE_API_FILE_TRANSFER_MESSAGE:
+                if (mUseRcsColumns) {
+                    cursor = db.query(
+                            RcsMessageProviderConstants.DeviceApiViews.FILE_TRANSFER_MESSAGE,
+                            projection, selection, selectionArgs, null, null, sortOrder);
+                } else {
+                    throw new IllegalStateException("Only Rcs has this URI:" + uri);
+                }
+                break;
             case URI_ONE_TO_MANY_MESSAGE_STATUS:
                 if (mUseRcsColumns) {
                     cursor = db.query(RcsMessageProviderConstants.TABLE_GROUP_STATUS,
@@ -1171,51 +1190,6 @@ public class MmsSmsProvider extends ContentProvider {
                 EMPTY_STRING_ARRAY);
     }
 
-    private Cursor getDeviceApiMessageByType(Uri uri, String[] projection,
-            String selection, String[] selectionArgs, String sortOrder) {
-        String type = uri.getQueryParameter("message_type");
-        String typeWhere = null;
-        if ("FT".equalsIgnoreCase(type)) {
-            typeWhere = " rcs_file_transfer_id IS NOT NULL";
-        } else if ("sms".equalsIgnoreCase(type) || "mms".equalsIgnoreCase(type)) {
-            typeWhere = " (rcs_file_transfer_id IS NOT NULL and " +
-                    "rcs_message_id is not null)";
-        } else if ("xml".equalsIgnoreCase(type)) {
-            typeWhere = " (rcs_file_transfer_id IS NOT NULL and " +
-                    "rcs_message_id is not null and rcs_chat_type = 3)";
-        } else {
-            typeWhere = " rcs_message_id is not null";
-        }
-        selection = concatSelections(typeWhere, selection);
-        String queryString = buildDeviceApiQuery(projection, selection, sortOrder);
-        return mOpenHelper.getReadableDatabase().rawQuery(queryString,
-                selectionArgs);
-    }
-
-    public static String buildDeviceApiQuery(String[] projection,
-            String selection, String sortOrder) {
-        SQLiteQueryBuilder deviceApiQueryBuilder = new SQLiteQueryBuilder();
-        if (projection == null || projection.length == 0) {
-            projection = RcsMessageProviderConstants.DEVICE_API_DEFAULT_PROJECT;
-        }
-        StringBuilder deviceApiTableString = new StringBuilder();
-        deviceApiTableString.append("(");
-        deviceApiTableString.append(RcsMessageProviderConstants.DEVICE_API_TABLE);
-        if (!TextUtils.isEmpty(selection)) {
-            deviceApiTableString.append(" where ( ");
-            deviceApiTableString.append(selection);
-            deviceApiTableString.append(" ) ");
-        }
-        if (!TextUtils.isEmpty(sortOrder)) {
-            deviceApiTableString.append(" ORDER BY ");
-            deviceApiTableString.append(sortOrder);
-        }
-        deviceApiTableString.append(") as deviceApi_table");
-        return deviceApiQueryBuilder.buildQueryString(false, deviceApiTableString.toString(),
-                projection, null, null, null, null, null);
-
-    }
-
     private static String appendSmsSelecttion(String selection) {
         if (!isMmsSelecttion(selection)) {
             return appendSelecttion(selection);
@@ -1667,6 +1641,21 @@ public class MmsSmsProvider extends ContentProvider {
                         "_id NOT IN (SELECT DISTINCT thread_id FROM sms where thread_id NOT NULL " +
                         "UNION SELECT DISTINCT thread_id FROM pdu where thread_id NOT NULL)", null);
                 break;
+            case URI_DELETE_CONVERSATION_MESSAGE:
+                if (mUseRcsColumns) {
+                    long deleteThreadId;
+                    try {
+                        deleteThreadId = Long.parseLong(uri.getLastPathSegment());
+                    } catch (NumberFormatException e) {
+                        Log.e(LOG_TAG, "Thread ID must be a long.");
+                        break;
+                    }
+                    affectedRows = deleteConversation(uri, selection, selectionArgs);
+                    allMessageDeletedUpdateThread(db, deleteThreadId);
+                } else {
+                    throw new IllegalStateException("Only Rcs has this URI:" + uri);
+                }
+                break;
             default:
                 throw new UnsupportedOperationException(NO_DELETES_INSERTS_OR_UPDATES + uri);
         }
@@ -1676,6 +1665,20 @@ public class MmsSmsProvider extends ContentProvider {
                     UserHandle.USER_ALL);
         }
         return affectedRows;
+    }
+
+    private int allMessageDeletedUpdateThread(SQLiteDatabase db, Long threadId) {
+        ContentValues values = new ContentValues();
+        long date = System.currentTimeMillis();
+        values.put(ThreadsColumns.DATE, date - date % 1000);
+        values.put(ThreadsColumns.MESSAGE_COUNT, 0);
+        values.put(ThreadsColumns.READ, 1);
+        values.put(ThreadsColumns.SNIPPET, "");
+        values.put(ThreadsColumns.HAS_ATTACHMENT, 0);
+        values.put(RcsColumns.ThreadColumns.RCS_MSG_ID, "");
+        values.put(RcsColumns.ThreadColumns.RCS_MSG_TYPE, 0);
+        values.put(RcsColumns.ThreadColumns.RCS_UNREAD_COUNT, 0);
+        return db.update(TABLE_THREADS, values, ThreadsColumns._ID + " = " + threadId, null);
     }
 
     /**
@@ -2148,18 +2151,23 @@ public class MmsSmsProvider extends ContentProvider {
     }
 
     private void setSmsRcsColumns() {
-        if (!sIsRcsUriAdded) {
-            sIsRcsUriAdded = true;
-
-            // Add for device api
-            URI_MATCHER.addURI(AUTHORITY, "deviceApiMessage", URI_DEVICE_API_MESSAGE);
-            URI_MATCHER.addURI(AUTHORITY, "deviceApiMessage_type", URI_DEVICE_API_MESSAGE_TYPE);
-            URI_MATCHER.addURI(AUTHORITY, "oneToManyStatus", URI_ONE_TO_MANY_MESSAGE_STATUS);
-        }
 
         mUseRcsColumns = MmsSmsDatabaseHelper.getInstance(getContext()).getUseRcsColumns();
         if (!mUseRcsColumns) {
             return;
+        }
+        if (!sIsRcsUriAdded) {
+            sIsRcsUriAdded = true;
+            // Add for device api
+            URI_MATCHER.addURI(AUTHORITY, "oneToManyStatus", URI_ONE_TO_MANY_MESSAGE_STATUS);
+            URI_MATCHER.addURI(AUTHORITY,
+                    "delete-conversation-message/#", URI_DELETE_CONVERSATION_MESSAGE);
+            URI_MATCHER.addURI(AUTHORITY, "deviceapi-conversations", URI_DEVICE_API_CONVERSATIONS);
+            URI_MATCHER.addURI(AUTHORITY, "deviceapi-messages", URI_DEVICE_API_MESSAGES);
+            URI_MATCHER.addURI(AUTHORITY,
+                    "deviceapi-public-account-messages", URI_DEVICE_API_PUBLIC_ACCOUNT_MESSAGE);
+            URI_MATCHER.addURI(AUTHORITY,
+                    "deviceapi-file-transfer-messages", URI_DEVICE_API_FILE_TRANSFER_MESSAGE);
         }
         SMS_ONLY_COLUMNS = RcsMessageProviderConstants.RCS_SMS_ONLY_COLUMNS;
         UNION_COLUMNS = new String[MMS_SMS_COLUMNS.length
