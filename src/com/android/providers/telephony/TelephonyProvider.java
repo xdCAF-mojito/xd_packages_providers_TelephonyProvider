@@ -89,7 +89,6 @@ public class TelephonyProvider extends ContentProvider
     private static final String REGIONAL_APNS_PATH = "etc/regional-apns-conf.xml";
 
     private static final String READ_ONLY = "read_only";
-    private static final String LOCALIZED_NAME = "localized_name";
 
     private static final String VISIT_AREA = "visit_area";
 
@@ -247,7 +246,6 @@ public class TelephonyProvider extends ContentProvider
                     "max_conns_time INTEGER default 0," +
                     "read_only BOOLEAN DEFAULT 0," +
                     "ppp_number TEXT," +
-                    "localized_name TEXT," +
                     "visit_area TEXT," +
                     "mtu INTEGER);");
             if (DBG) log("dbh.createCarriersTable:-");
@@ -469,8 +467,6 @@ public class TelephonyProvider extends ContentProvider
             map.put(Telephony.Carriers.PASSWORD, parser.getAttributeValue(null, "password"));
             map.put(mContext.getString(R.string.ppp_number),
                     parser.getAttributeValue(null, "ppp_number"));
-            map.put(mContext.getString(R.string.localized_name),
-                    parser.getAttributeValue(null, "localized_name"));
 
             // do not add NULL to the map so that insert() will set the default value
             String proxy = parser.getAttributeValue(null, "proxy");
@@ -699,9 +695,14 @@ public class TelephonyProvider extends ContentProvider
                     if (apnCount > 1) {
                         if (DBG) log("Multiple apns found in db with same values");
                     } else if (apnCount == 1) {
-                        if (operation != null && operation.equalsIgnoreCase("delete")) {
-                            if (DBG) log("Deleting apn in db: " + apn);
-                            db.delete(CARRIERS_TABLE, selection, selectionArgs);
+                        if (operation != null) {
+                            if (operation.equalsIgnoreCase("delete")) {
+                                if (DBG) log("Deleting apn in db: " + apn);
+                                db.delete(CARRIERS_TABLE, selection, selectionArgs);
+                            } else if (operation.equalsIgnoreCase("add")) {
+                                if (DBG) log("Adding regional apn to db: " + apn);
+                                db.insert(CARRIERS_TABLE, null, row);
+                            }
                         } else {
                             if (DBG) log("Replacing apn in db with regional apn: " + apn);
                             db.update(CARRIERS_TABLE, row, selection, selectionArgs);
@@ -796,9 +797,6 @@ public class TelephonyProvider extends ContentProvider
 
             if (values.containsKey(READ_ONLY) == false) {
                 values.put(READ_ONLY, false);
-            }
-            if (!values.containsKey(LOCALIZED_NAME)) {
-                values.put(LOCALIZED_NAME, "");
             }
             return values;
         }
