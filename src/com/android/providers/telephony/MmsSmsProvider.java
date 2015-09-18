@@ -472,6 +472,12 @@ public class MmsSmsProvider extends ContentProvider {
                         selectionArgs = appendSelectionArgs(selectionArgs, phoneId, phoneId);
                     }
 
+                    // Exclude obsolete threads, it may be inserted by contact.
+                    String excObsolete = "_id IN (SELECT DISTINCT thread_id FROM sms where " +
+                            "thread_id NOT NULL UNION SELECT DISTINCT thread_id FROM pdu " +
+                            "where thread_id NOT NULL)";
+                    selection = concatSelections(selection, excObsolete);
+
                     cursor = getSimpleConversations(
                             projection, selection, selectionArgs, sortOrder);
                 } else {
