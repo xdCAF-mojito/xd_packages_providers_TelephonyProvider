@@ -7,4 +7,6 @@
         <item>310120</item>
         <item>311480</item>
     </string-array>
+      <!-- configuration for CMCC rcs provider -->
+    <bool name="config_using_rcs_cloumns">true</bool>
 </resources>

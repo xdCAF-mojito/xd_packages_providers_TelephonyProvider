@@ -45,6 +45,9 @@ import android.text.TextUtils;
 import android.util.Log;
 
 import com.google.android.mms.pdu.PduHeaders;
+import com.suntek.mway.rcs.client.aidl.common.RcsColumns;
+import com.suntek.rcs.ui.common.provider.RcsMessageProviderUtils;
+import com.suntek.rcs.ui.common.provider.RcsMessageProviderConstants;
 
 import java.io.FileDescriptor;
 import java.io.PrintWriter;
@@ -159,12 +162,28 @@ public class MmsSmsProvider extends ContentProvider {
         Mms.READ_REPORT, Mms.STATUS, Mms.SUBJECT, Mms.SUBJECT_CHARSET,
         Mms.TRANSACTION_ID, Mms.MMS_VERSION, Mms.TEXT_ONLY };
 
+    /* Begin add for RCS */
+    private static final int URI_FAVOURITE_MESSAGES                = 25;
+    private static final int URI_UPDATE_THREAD_TOP                 = 26;
+    // Add for 1-n message status.
+    private static final int URI_ONE_TO_MANY_MESSAGE_STATUS        = 27;
+    // Add for RCS device api delete message
+    private static final int URI_DELETE_CONVERSATION_MESSAGE       = 28;
+    private static final int URI_DEVICE_API_CONVERSATIONS          = 29;
+    private static final int URI_DEVICE_API_MESSAGES               = 30;
+    private static final int URI_DEVICE_API_PUBLIC_ACCOUNT_MESSAGE = 31;
+    private static final int URI_DEVICE_API_FILE_TRANSFER_MESSAGE  = 32;
+
+    private static boolean sIsRcsUriAdded = false;
+    private boolean mUseRcsColumns;
+
     // These are the columns that appear only in the SMS message
     // table.
-    private static final String[] SMS_ONLY_COLUMNS =
+    private static final String[] DEFAULT_SMS_ONLY_COLUMNS =
             { "address", "body", "person", "reply_path_present",
               "service_center", "status", "subject", "type", "error_code" };
-
+    private static String[] SMS_ONLY_COLUMNS = DEFAULT_SMS_ONLY_COLUMNS;
+    /* End add for RCS */
     // These are all the columns that appear in the "threads" table.
     private static final String[] THREADS_COLUMNS = {
         BaseColumns._ID,
@@ -182,7 +201,7 @@ public class MmsSmsProvider extends ContentProvider {
 
     // These are all the columns that appear in the MMS and SMS
     // message tables.
-    private static final String[] UNION_COLUMNS =
+    private static  String[] UNION_COLUMNS =
             new String[MMS_SMS_COLUMNS.length
                        + MMS_ONLY_COLUMNS.length
                        + SMS_ONLY_COLUMNS.length];
@@ -342,6 +361,11 @@ public class MmsSmsProvider extends ContentProvider {
 
         URI_MATCHER.addURI(AUTHORITY, "update-date", URI_UPDATE_THREAD_DATE);
 
+        URI_MATCHER.addURI(AUTHORITY, "update-top", URI_UPDATE_THREAD_TOP);
+
+        URI_MATCHER.addURI(
+                AUTHORITY, "conversations/favourite", URI_FAVOURITE_MESSAGES);
+
         // Use this pattern to query the canonical address by given ID.
         URI_MATCHER.addURI(AUTHORITY, "canonical-address/#", URI_CANONICAL_ADDRESS);
 
@@ -387,6 +411,7 @@ public class MmsSmsProvider extends ContentProvider {
     public boolean onCreate() {
         setAppOps(AppOpsManager.OP_READ_SMS, AppOpsManager.OP_WRITE_SMS);
         mOpenHelper = MmsSmsDatabaseHelper.getInstance(getContext());
+        setSmsRcsColumns();
         mUseStrictPhoneNumberComparation =
             getContext().getResources().getBoolean(
                     com.android.internal.R.bool.config_use_strict_phone_number_comparation);
@@ -602,6 +627,58 @@ public class MmsSmsProvider extends ContentProvider {
                         projection, selection, sortOrder, smsTable, pduTable);
                 break;
             }
+            case URI_FAVOURITE_MESSAGES:
+                if (mUseRcsColumns) {
+                    cursor = getFavourateMessages(uri.getPathSegments().get(1), projection,
+                            selection, sortOrder);
+                } else {
+                    throw new IllegalStateException("Only Rcs has this URI:" + uri);
+                }
+                break;
+           case URI_DEVICE_API_CONVERSATIONS:
+                if (mUseRcsColumns) {
+                    cursor = db.query(
+                            RcsMessageProviderConstants.DeviceApiViews.MESSAGE_CONVERSATION,
+                            projection, selection, selectionArgs, null, null, sortOrder);
+                } else {
+                    throw new IllegalStateException("Only Rcs has this URI:" + uri);
+                }
+                break;
+            case URI_DEVICE_API_MESSAGES:
+                if (mUseRcsColumns) {
+                    cursor = db.query(
+                            RcsMessageProviderConstants.DeviceApiViews.DEVICE_API_MESSAGES,
+                            projection, selection, selectionArgs, null, null, sortOrder);
+                } else {
+                    throw new IllegalStateException("Only Rcs has this URI:" + uri);
+                }
+                break;
+            case URI_DEVICE_API_PUBLIC_ACCOUNT_MESSAGE:
+                if (mUseRcsColumns) {
+                    cursor = db.query(
+                            RcsMessageProviderConstants.DeviceApiViews.PUBLIC_ACCOUNT_MESSAGES,
+                            projection, selection, selectionArgs, null, null, sortOrder);
+                } else {
+                    throw new IllegalStateException("Only Rcs has this URI:" + uri);
+                }
+                break;
+            case URI_DEVICE_API_FILE_TRANSFER_MESSAGE:
+                if (mUseRcsColumns) {
+                    cursor = db.query(
+                            RcsMessageProviderConstants.DeviceApiViews.FILE_TRANSFER_MESSAGE,
+                            projection, selection, selectionArgs, null, null, sortOrder);
+                } else {
+                    throw new IllegalStateException("Only Rcs has this URI:" + uri);
+                }
+                break;
+            case URI_ONE_TO_MANY_MESSAGE_STATUS:
+                if (mUseRcsColumns) {
+                    cursor = db.query(RcsMessageProviderConstants.TABLE_GROUP_STATUS,
+                            projection, selection, selectionArgs, null, null, sortOrder);
+                } else {
+                    throw new IllegalStateException("Only Rcs has this URI:" + uri);
+                }
+                break;
             default:
                 throw new IllegalStateException("Unrecognized URI:" + uri);
         }
@@ -854,7 +931,7 @@ public class MmsSmsProvider extends ContentProvider {
     private Cursor getSimpleConversations(String[] projection, String selection,
             String[] selectionArgs, String sortOrder) {
         return mOpenHelper.getReadableDatabase().query(TABLE_THREADS, projection,
-                selection, selectionArgs, null, null, " date DESC");
+                selection, selectionArgs, null, null, sortOrder);
     }
 
     /**
@@ -1578,12 +1655,25 @@ public class MmsSmsProvider extends ContentProvider {
 
     @Override
     public Uri insert(Uri uri, ContentValues values) {
-        if (URI_MATCHER.match(uri) == URI_PENDING_MSG) {
-            SQLiteDatabase db = mOpenHelper.getWritableDatabase();
-            long rowId = db.insert(TABLE_PENDING_MSG, null, values);
-            return Uri.parse(uri + "/" + rowId);
+        switch(URI_MATCHER.match(uri)) {
+            case URI_PENDING_MSG:{
+                SQLiteDatabase db = mOpenHelper.getWritableDatabase();
+                long rowId = db.insert(TABLE_PENDING_MSG, null, values);
+                return Uri.parse(uri + "/" + rowId);
+            }
+            case URI_ONE_TO_MANY_MESSAGE_STATUS:{
+                if (mUseRcsColumns) {
+                    SQLiteDatabase db = mOpenHelper.getWritableDatabase();
+                    long rowId = db.insert(RcsMessageProviderConstants.TABLE_GROUP_STATUS, null,
+                            values);
+                    return Uri.parse(uri + "/" + rowId);
+                } else {
+                    throw new IllegalStateException("Only Rcs has this URI:" + uri);
+                }
+            }
+            default:
+                throw new UnsupportedOperationException(NO_DELETES_INSERTS_OR_UPDATES + uri);
         }
-        throw new UnsupportedOperationException(NO_DELETES_INSERTS_OR_UPDATES + uri);
     }
 
     @Override
@@ -1637,6 +1727,21 @@ public class MmsSmsProvider extends ContentProvider {
 
             case URI_UPDATE_THREAD_DATE:
                 MmsSmsDatabaseHelper.updateThreadsDate(db, selection, selectionArgs);
+                break;
+            case URI_UPDATE_THREAD_TOP:
+                if (mUseRcsColumns) {
+                    db.update("threads", values, selection, selectionArgs);
+                } else {
+                    throw new IllegalStateException("Only Rcs has this URI:" + uri);
+                }
+                break;
+            case URI_ONE_TO_MANY_MESSAGE_STATUS:
+                if (mUseRcsColumns) {
+                    db.update(RcsMessageProviderConstants.TABLE_GROUP_STATUS, values, selection,
+                            selectionArgs);
+                } else {
+                    throw new IllegalStateException("Only Rcs has this URI:" + uri);
+                }
                 break;
             default:
                 throw new UnsupportedOperationException(
@@ -1892,19 +1997,43 @@ public class MmsSmsProvider extends ContentProvider {
     private String getSmsQueryString(int searchMode, int matchWhole, String threadIdString) {
         String smsQuery = "";
         if (searchMode == SEARCH_MODE_CONTENT) {
-            smsQuery = String.format(
-                    "SELECT %s FROM sms WHERE (body LIKE ? ESCAPE '" +
-                            SEARCH_ESCAPE_CHARACTER + "') ",
-                    SMS_PROJECTION);
+            if (mUseRcsColumns) {
+                smsQuery = String.format(
+                        "SELECT %s FROM sms WHERE (" + RcsColumns.SmsRcsColumns.RCS_BURN +
+                        "='-1'AND body LIKE ? ESCAPE '" + SEARCH_ESCAPE_CHARACTER + "') ",
+                        SMS_PROJECTION);
+            } else {
+                smsQuery = String.format(
+                        "SELECT %s FROM sms WHERE (body LIKE ? ESCAPE '" +
+                        SEARCH_ESCAPE_CHARACTER + "') ",
+                        SMS_PROJECTION);
+            }
+
         } else if (searchMode == SEARCH_MODE_NUMBER && matchWhole == MATCH_BY_ADDRESS) {
-            smsQuery = String.format(
-                    "SELECT %s FROM sms WHERE (address LIKE ?)",
-                    SMS_PROJECTION);
+            if (mUseRcsColumns) {
+                smsQuery = String.format(
+                        "SELECT %s FROM sms WHERE (" + RcsColumns.SmsRcsColumns.RCS_BURN +
+                        "='-1' AND address LIKE ?)",
+                        SMS_PROJECTION);
+            } else {
+                smsQuery = String.format(
+                        "SELECT %s FROM sms WHERE (address LIKE ?)",
+                        SMS_PROJECTION);
+            }
         } else if (searchMode == SEARCH_MODE_NUMBER && matchWhole == MATCH_BY_THREAD_ID) {
-            smsQuery = String.format(
-                    "SELECT %s FROM sms WHERE (thread_id in (%s))",
-                    SMS_PROJECTION,
-                    threadIdString);
+            if (mUseRcsColumns) {
+                smsQuery = String.format(
+                        "SELECT %s FROM sms WHERE (" + RcsColumns.SmsRcsColumns.RCS_BURN +
+                        "='-1' AND thread_id in (%s))",
+                        SMS_PROJECTION,
+                        threadIdString);
+            } else {
+                smsQuery = String.format(
+                        "SELECT %s FROM sms WHERE (thread_id in (%s))",
+                        SMS_PROJECTION,
+                        threadIdString);
+            }
+
         }
         return smsQuery;
     }
@@ -1986,4 +2115,41 @@ public class MmsSmsProvider extends ContentProvider {
 
         return resultString;
     }
+
+    /* Begin add for RCS */
+    private void setSmsRcsColumns() {
+        mUseRcsColumns = MmsSmsDatabaseHelper.getInstance(getContext()).getUseRcsColumns();
+        if (!mUseRcsColumns) {
+            return;
+        }
+        if (!sIsRcsUriAdded) {
+            sIsRcsUriAdded = true;
+            // Add for device api
+            URI_MATCHER.addURI(AUTHORITY, "oneToManyStatus", URI_ONE_TO_MANY_MESSAGE_STATUS);
+            URI_MATCHER.addURI(AUTHORITY,
+                    "delete-conversation-message/#", URI_DELETE_CONVERSATION_MESSAGE);
+            URI_MATCHER.addURI(AUTHORITY, "deviceapi-conversations", URI_DEVICE_API_CONVERSATIONS);
+            URI_MATCHER.addURI(AUTHORITY, "deviceapi-messages", URI_DEVICE_API_MESSAGES);
+            URI_MATCHER.addURI(AUTHORITY,
+                    "deviceapi-public-account-messages", URI_DEVICE_API_PUBLIC_ACCOUNT_MESSAGE);
+            URI_MATCHER.addURI(AUTHORITY,
+                    "deviceapi-file-transfer-messages", URI_DEVICE_API_FILE_TRANSFER_MESSAGE);
+        }
+        SMS_ONLY_COLUMNS = RcsMessageProviderConstants.RCS_SMS_ONLY_COLUMNS;
+        UNION_COLUMNS = new String[MMS_SMS_COLUMNS.length
+                           + MMS_ONLY_COLUMNS.length
+                           + SMS_ONLY_COLUMNS.length];
+        initializeColumnSets();
+    }
+
+    private Cursor getFavourateMessages(
+            String threadIdString, String[] projection, String selection,
+            String sortOrder) {
+        String finalSelection = concatSelections(
+                selection,  " "+"favourite = " + 1);
+        String unionQuery = buildConversationQuery(projection, finalSelection, sortOrder,"smsTable",
+                "pduTable");
+        return mOpenHelper.getReadableDatabase().rawQuery(unionQuery, EMPTY_STRING_ARRAY);
+    }
+    /* End add for RCS */
 }

@@ -41,6 +41,9 @@ import android.util.Log;
 import com.google.android.mms.pdu.EncodedStringValue;
 import com.google.android.mms.pdu.PduHeaders;
 
+import com.suntek.mway.rcs.client.aidl.common.RcsColumns;
+import com.suntek.rcs.ui.common.provider.RcsMessageProviderUtils;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -171,6 +174,16 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
 
     static final String DATABASE_NAME = "mmssms.db";
     static final int DATABASE_VERSION = 61;
+
+    /* Begin add for RCS */
+    /**
+     * If the RCS is not supported, the RCS related columns should not be added to the tables in
+     * database. And the query projections should not return any RCS columns.  This value is 'false'
+     * by default.
+     */
+    private static boolean mUseRcsColumns;
+    /* End add for RCS */
+
     private final Context mContext;
     private LowStorageMonitor mLowStorageMonitor;
 
@@ -178,6 +191,8 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
         super(context, DATABASE_NAME, null, DATABASE_VERSION);
 
         mContext = context;
+        mUseRcsColumns = context.getResources().getBoolean(
+                R.bool.config_using_rcs_cloumns);
     }
 
     /**
@@ -453,6 +468,11 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
         createMmsTriggers(db);
         createWordsTables(db);
         createIndices(db);
+        if (mUseRcsColumns) {
+            RcsMessageProviderUtils.createRcsOneToManyMesageStatusTable(db);
+            RcsMessageProviderUtils.createRcsThreadUpdateTriggers(db);
+            RcsMessageProviderUtils.createDeviceApiSqlView(db);
+        }
     }
 
     @Override
@@ -846,7 +866,10 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
     private void createSmsTables(SQLiteDatabase db) {
         // N.B.: Whenever the columns here are changed, the columns in
         // {@ref MmsSmsProvider} must be changed to match.
-        db.execSQL("CREATE TABLE sms (" +
+        if (mUseRcsColumns) {
+            RcsMessageProviderUtils.createRcsSmsTable(db);
+        } else {
+            db.execSQL("CREATE TABLE sms (" +
                    "_id INTEGER PRIMARY KEY," +
                    "thread_id INTEGER," +
                    "address TEXT," +
@@ -872,7 +895,7 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                    "seen INTEGER DEFAULT 0," +
                    "priority INTEGER DEFAULT -1" +
                    ");");
-
+        }
         /**
          * This table is used by the SMS dispatcher to hold
          * incomplete partial messages until all the parts arrive.
@@ -936,7 +959,10 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
          * thread if they have the same subject (or a null subject)
          * and the same set of recipients.
          */
-        db.execSQL("CREATE TABLE threads (" +
+        if (mUseRcsColumns) {
+            RcsMessageProviderUtils.createRcsThreadsTable(db);
+        } else {
+            db.execSQL("CREATE TABLE threads (" +
                    Threads._ID + " INTEGER PRIMARY KEY AUTOINCREMENT," +
                    Threads.DATE + " INTEGER DEFAULT 0," +
                    Threads.MESSAGE_COUNT + " INTEGER DEFAULT 0," +
@@ -948,7 +974,7 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                    Threads.TYPE + " INTEGER DEFAULT 0," +
                    Threads.ERROR + " INTEGER DEFAULT 0," +
                    Threads.HAS_ATTACHMENT + " INTEGER DEFAULT 0);");
-
+        }
         /**
          * This table stores the queue of messages to be sent/downloaded.
          */
@@ -1967,4 +1993,10 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
                    "   JOIN pdu ON pdu._id=part.mid " +
                    "   WHERE part.ct != 'text/plain' AND part.ct != 'application/smil')");
     }
+
+    /* Begin add for RCS */
+    public boolean getUseRcsColumns() {
+        return mUseRcsColumns;
+    }
+    /* End add for RCS */
 }

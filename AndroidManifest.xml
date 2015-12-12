@@ -30,6 +30,7 @@
                  android:label="@string/app_label"
                  android:icon="@mipmap/ic_launcher_phone"
                  android:usesCleartextTraffic="false">
+        <uses-library android:name="com.suntek.mway.rcs.client.api" android:required="true" />
 
         <provider android:name="TelephonyProvider"
                   android:authorities="telephony"
