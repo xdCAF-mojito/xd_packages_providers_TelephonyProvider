@@ -280,7 +280,12 @@ public class MmsProvider extends ContentProvider {
                 qb.appendWhere(BaseColumns._ID + "=" + uri.getLastPathSegment());
                 break;
             case MMS_THREADS:
-                qb.setTables(pduTable + " group by thread_id");
+                String group = " group by thread_id";
+                if (!TextUtils.isEmpty(uri.getQueryParameter("filter_count"))) {
+                    int count = Integer.parseInt(uri.getQueryParameter("filter_count"));
+                    group = group + " having COUNT(thread_id) >= " + count;
+                }
+                qb.setTables(pduTable + group);
                 break;
             case MMS_GET_PDU:
                 int itemCount = Integer.parseInt(uri.getQueryParameter("item_count"));
