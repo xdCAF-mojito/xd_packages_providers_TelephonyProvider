@@ -46,7 +46,7 @@ public class ProviderUtil {
         if (useRcsColumns) {
             return (uid != Process.SYSTEM_UID
                     && uid != Process.PHONE_UID
-                    && !packageName.equals(RCS_SERVICE_PACKAGE_NAME)
+                    && !RCS_SERVICE_PACKAGE_NAME.equals(packageName)
                     && !SmsApplication.isDefaultSmsApplication(context, packageName));
         } else {
             return (uid != Process.SYSTEM_UID
