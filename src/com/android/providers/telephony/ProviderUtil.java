@@ -28,6 +28,10 @@ import com.android.internal.telephony.SmsApplication;
  */
 public class ProviderUtil {
 
+    /* Begin add for RCS */
+    private static final String RCS_SERVICE_PACKAGE_NAME = "com.suntek.mway.rcs.app.service";
+    /* End add for RCS */
+
     /**
      * Check if a caller of the provider has restricted access,
      * i.e. being non-system, non-phone, non-default SMS app
@@ -38,9 +42,17 @@ public class ProviderUtil {
      * @return true if the caller is not system, or phone or default sms app, false otherwise
      */
     public static boolean isAccessRestricted(Context context, String packageName, int uid) {
-        return (uid != Process.SYSTEM_UID
-                && uid != Process.PHONE_UID
-                && !SmsApplication.isDefaultSmsApplication(context, packageName));
+        boolean useRcsColumns = MmsSmsDatabaseHelper.getInstance(context).getUseRcsColumns();
+        if (useRcsColumns) {
+            return (uid != Process.SYSTEM_UID
+                    && uid != Process.PHONE_UID
+                    && !RCS_SERVICE_PACKAGE_NAME.equals(packageName)
+                    && !SmsApplication.isDefaultSmsApplication(context, packageName));
+        } else {
+            return (uid != Process.SYSTEM_UID
+                    && uid != Process.PHONE_UID
+                    && !SmsApplication.isDefaultSmsApplication(context, packageName));
+        }
     }
 
     /**

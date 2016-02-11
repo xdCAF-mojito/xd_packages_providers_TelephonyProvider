@@ -474,6 +474,7 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
             RcsMessageProviderUtils.createRcsOneToManyMesageStatusTable(db);
             RcsMessageProviderUtils.createRcsThreadUpdateTriggers(db);
             RcsMessageProviderUtils.createDeviceApiSqlView(db);
+            RcsMessageProviderUtils.createGroupStatusUpdateTriggers(db);
         }
     }
 
@@ -483,6 +484,9 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
             // Try to access the table and create it if "no such table"
             db.query(SmsProvider.TABLE_SMS, null, null, null, null, null, null);
             checkAndUpdateSmsTable(db);
+            if (mUseRcsColumns) {
+                RcsMessageProviderUtils.checkAndUpdateRcsSmsTable(db);
+            }
         } catch (SQLiteException e) {
             Log.e(TAG, "onOpen: ex. ", e);
             if (e.getMessage().startsWith(NO_SUCH_TABLE_EXCEPTION_MESSAGE)) {
@@ -490,6 +494,9 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
             }
         }
 
+        if (mUseRcsColumns) {
+            RcsMessageProviderUtils.checkAndUpdateThreadTable(db);
+        }
         // Improve the performance of deleting Mms.
         dropMmsTriggers(db);
 
@@ -2059,5 +2066,6 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
     public boolean getUseRcsColumns() {
         return mUseRcsColumns;
     }
+
     /* End add for RCS */
 }
