@@ -37,6 +37,7 @@ import android.os.Binder;
 import android.os.Environment;
 import android.os.UserHandle;
 import android.provider.Telephony;
+import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.util.Log;
@@ -55,6 +56,7 @@ import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.lang.NumberFormatException;
+import java.util.List;
 
 public class TelephonyProvider extends ContentProvider
 {
@@ -239,6 +241,7 @@ public class TelephonyProvider extends ContentProvider
                     "mvno_type TEXT," +
                     "mvno_match_data TEXT," +
                     "sub_id INTEGER DEFAULT " + SubscriptionManager.INVALID_SUBSCRIPTION_ID + "," +
+                    "edited INTEGER DEFAULT 0," +
                     "profile_id INTEGER default 0," +
                     "modem_cognitive BOOLEAN default 0," +
                     "max_conns INTEGER default 0," +
@@ -625,6 +628,10 @@ public class TelephonyProvider extends ContentProvider
             int subId = SubscriptionManager.getDefaultSubId();
             if (!values.containsKey(Telephony.Carriers.SUBSCRIPTION_ID)) {
                 values.put(Telephony.Carriers.SUBSCRIPTION_ID, subId);
+            }
+
+            if (!values.containsKey(mContext.getString(R.string.edited))) {
+                values.put(mContext.getString(R.string.edited), 0);
             }
 
             if (!values.containsKey(Telephony.Carriers.PROFILE_ID)) {
@@ -1213,9 +1220,26 @@ public class TelephonyProvider extends ContentProvider
 
     private void restoreDefaultAPN(int subId) {
         SQLiteDatabase db = mOpenHelper.getWritableDatabase();
+        TelephonyManager mTm =
+               (TelephonyManager) getContext().getSystemService(Context.TELEPHONY_SERVICE);
+        SubscriptionManager sm = SubscriptionManager.from(getContext());
+        String operatorNumeric = null;
+        String where = null;
+        List<SubscriptionInfo> subInfoList = sm.getActiveSubscriptionInfoList();
+        if (subInfoList != null && subInfoList.size() > 1) {
+            where = "not (";
+            for (SubscriptionInfo subInfo : subInfoList) {
+               if (subId != subInfo.getSubscriptionId()) {
+                  operatorNumeric = mTm.getIccOperatorNumeric(subInfo.getSubscriptionId());
+                  where = where + "numeric=" + operatorNumeric + " and ";
+               }
+            }
+            where = where + "edited=1)";
+        }
+        log("restoreDefaultAPN: where: " + where);
 
         try {
-            db.delete(CARRIERS_TABLE, null, null);
+            db.delete(CARRIERS_TABLE, where, null);
         } catch (SQLException e) {
             loge("got exception when deleting to restore: " + e);
         }
