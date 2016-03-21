@@ -39,4 +39,7 @@
 
     <!-- default protocol -->
     <string name="default_protocol">IP</string>
+
+    <!-- APN edited -->
+    <string name="edited">edited</string>
 </resources>
