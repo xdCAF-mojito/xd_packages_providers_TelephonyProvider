@@ -1216,7 +1216,8 @@ public class MmsSmsProvider extends ContentProvider {
 
         mmsQueryBuilder.setDistinct(true);
         smsQueryBuilder.setDistinct(true);
-        mmsQueryBuilder.setTables("threads, " + joinPduAndPendingMsgTables(pduTable));
+        mmsQueryBuilder.setTables("threads, " + joinPduAndPendingMsgTablesForMailBox(
+                pduTable));
         smsQueryBuilder.setTables(SmsProvider.TABLE_SMS + ", threads ");
 
         String[] smsColumns = handleNullMessageProjection(smsProjection);
@@ -1392,6 +1393,11 @@ public class MmsSmsProvider extends ContentProvider {
     private static String joinPduAndPendingMsgTables(String pduTable) {
         return pduTable + " LEFT JOIN " + TABLE_PENDING_MSG
                 + " ON " + pduTable + "._id = pending_msgs.msg_id";
+    }
+
+    private static String joinPduAndPendingMsgTablesForMailBox(String pduTable) {
+        return pduTable + " AS pdu LEFT JOIN " + TABLE_PENDING_MSG
+                + " ON pdu._id = pending_msgs.msg_id";
     }
 
     private static String[] createMmsProjection(String[] old, String pduTable) {
