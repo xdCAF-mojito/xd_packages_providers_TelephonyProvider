@@ -94,6 +94,10 @@ public class TelephonyProvider extends ContentProvider
 
     private static final String VISIT_AREA = "visit_area";
 
+    private static final String FOTA_APN_UPDATE = "fota_apn_update";
+
+    private static final String FOTA_UPDATE_DONE = "fota_update_done";
+
     private static final UriMatcher s_urlMatcher = new UriMatcher(UriMatcher.NO_MATCH);
 
     private static final ContentValues s_currentNullMap;
@@ -170,6 +174,10 @@ public class TelephonyProvider extends ContentProvider
         @Override
         public void onOpen(SQLiteDatabase db) {
             if (VDBG) log("dbh.onOpen:+ db=" + db);
+            SharedPreferences sp = mContext.getSharedPreferences(FOTA_APN_UPDATE,
+                    Context.MODE_PRIVATE);
+            String fotaUpdateStatus = sp.getString(FOTA_UPDATE_DONE, "");
+            if (DBG) log("dbh.onOpen:+ fotaUpdateStatus=" + fotaUpdateStatus);
             try {
                 // Try to access the table and create it if "no such table"
                 db.query(SIMINFO_TABLE, null, null, null, null, null, null);
@@ -180,13 +188,26 @@ public class TelephonyProvider extends ContentProvider
                     createSimInfoTable(db);
                 }
             }
-            try {
-                db.query(CARRIERS_TABLE, null, null, null, null, null, null);
-                if (DBG) log("dbh.onOpen: ok, queried table=" + CARRIERS_TABLE);
-            } catch (SQLiteException e) {
-                loge("Exception " + CARRIERS_TABLE + " e=" + e);
-                if (e.getMessage().startsWith("no such table")) {
-                    createCarriersTable(db);
+            if (fotaUpdateStatus.equals("true")) {
+                try {
+                    db.query(CARRIERS_TABLE, null, null, null, null, null, null);
+                    if (DBG) log("dbh.onOpen: ok, queried table=" + CARRIERS_TABLE);
+                } catch (SQLiteException e) {
+                    loge("Exception " + CARRIERS_TABLE + " e=" + e);
+                    if (e.getMessage().startsWith("no such table")) {
+                        createCarriersTable(db);
+                    }
+                }
+            } else {
+                SharedPreferences.Editor spEditor = sp.edit();
+                spEditor.putString(FOTA_UPDATE_DONE, "true");
+                spEditor.commit();
+                try {
+                    if (DBG) log("dbh.onOpen: reinitializing database");
+                    db.delete(CARRIERS_TABLE, null, null);
+                    initDatabase(db);
+                } catch (SQLException e) {
+                    loge("got exception when deleting to restore: " + e);
                 }
             }
             if (VDBG) log("dbh.onOpen:- db=" + db);
