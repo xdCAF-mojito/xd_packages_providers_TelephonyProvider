@@ -2322,18 +2322,30 @@ public class TelephonyProvider extends ContentProvider
         TelephonyManager mTm =
                (TelephonyManager) getContext().getSystemService(Context.TELEPHONY_SERVICE);
         SubscriptionManager sm = SubscriptionManager.from(getContext());
-        String operatorNumeric = null;
+        String selSubOperatorNumeric = mTm.getIccOperatorNumericForData(subId);
+        String otherSubOperatorNumeric = null;
         String where = null;
         List<SubscriptionInfo> subInfoList = sm.getActiveSubscriptionInfoList();
+        int simCountWithSameNumeric = 0;
         if (subInfoList != null && subInfoList.size() > 1) {
             where = "not (";
             for (SubscriptionInfo subInfo : subInfoList) {
                if (subId != subInfo.getSubscriptionId()) {
-                  operatorNumeric = mTm.getIccOperatorNumericForData(subInfo.getSubscriptionId());
-                  where = where + "numeric=" + operatorNumeric + " and ";
+                  otherSubOperatorNumeric = mTm.getIccOperatorNumericForData(
+                          subInfo.getSubscriptionId());
+                  if (!otherSubOperatorNumeric.equalsIgnoreCase(selSubOperatorNumeric)) {
+                      where = where + "numeric=" + otherSubOperatorNumeric + " and ";
+                  } else {
+                      simCountWithSameNumeric++;
+                  }
                }
             }
             where = where + "edited=" + Telephony.Carriers.USER_EDITED + ")";
+        }
+
+        if (simCountWithSameNumeric == subInfoList.size() - 1) {
+            //Reset where as all slots have same sims
+            where = null;
         }
         log("restoreDefaultAPN: where: " + where);
 
