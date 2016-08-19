@@ -153,6 +153,7 @@ public class TelephonyProvider extends ContentProvider
         CARRIERS_UNIQUE_FIELDS.add(PROFILE_ID);
         CARRIERS_UNIQUE_FIELDS.add(PROTOCOL);
         CARRIERS_UNIQUE_FIELDS.add(ROAMING_PROTOCOL);
+        CARRIERS_UNIQUE_FIELDS.add(TYPE);
     }
 
     @VisibleForTesting
