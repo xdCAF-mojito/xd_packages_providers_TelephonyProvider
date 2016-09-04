@@ -1131,10 +1131,10 @@ public class SmsProvider extends ContentProvider {
     public int bulkInsert(Uri uri, ContentValues[] values) {
         SQLiteDatabase db = mOpenHelper.getWritableDatabase();
         db.beginTransaction();
-        long token = Binder.clearCallingIdentity();
         int numValues = values.length;
         final int callerUid = Binder.getCallingUid();
         final String callerPkg = getCallingPackage();
+        long token = Binder.clearCallingIdentity();
         Log.d(TAG, "start bulkInsert uri: " + uri + " count: " + numValues);
         try {
             for (int i = 0; i < numValues; i++) {
