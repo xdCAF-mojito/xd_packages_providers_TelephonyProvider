@@ -2328,10 +2328,14 @@ public class TelephonyProvider extends ContentProvider
         if (subInfoList != null && subInfoList.size() > 1) {
             where = "not (";
             for (SubscriptionInfo subInfo : subInfoList) {
-               if (subId != subInfo.getSubscriptionId()) {
-                  operatorNumeric = mTm.getIccOperatorNumericForData(subInfo.getSubscriptionId());
-                  where = where + "numeric=" + operatorNumeric + " and ";
-               }
+                if (subId != subInfo.getSubscriptionId()) {
+                    operatorNumeric = mTm.getIccOperatorNumericForData(subInfo.getSubscriptionId());
+                    if (TextUtils.isEmpty(operatorNumeric)) {
+                        where = where + "sub_id=" + subInfo.getSubscriptionId() + " and ";
+                    } else {
+                        where = where + "numeric=" + operatorNumeric + " and ";
+                    }
+                }
             }
             where = where + "edited=" + Telephony.Carriers.USER_EDITED + ")";
         }
