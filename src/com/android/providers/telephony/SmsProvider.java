@@ -97,8 +97,8 @@ public class SmsProvider extends ContentProvider {
     static final long RAW_MESSAGE_EXPIRE_AGE_MS = (long) (60 * 60 * 1000);
 
     private static final String SMS_BOX_ID = "box_id";
-    private static final Uri INSERT_SMS_INTO_ICC_SUCCESS = Uri.parse("content://iccsms/success");
-    private static final Uri INSERT_SMS_INTO_ICC_FAIL = Uri.parse("content://iccsms/fail");
+    private static final String INSERT_SMS_INTO_ICC_SUCCESS = "success";
+    private static final String INSERT_SMS_INTO_ICC_FAIL = "fail";
 
     /**
      * These are the columns that are available when reading SMS
@@ -585,7 +585,7 @@ public class SmsProvider extends ContentProvider {
                 break;
 
             case SMS_ALL_ICC:
-                return insertMessageIntoIcc(initialValues);
+                return insertMessageIntoIcc(url, initialValues);
 
             default:
                 Log.e(TAG, "Invalid request: " + url);
@@ -720,9 +720,9 @@ public class SmsProvider extends ContentProvider {
         return null;
     }
 
-    private Uri insertMessageIntoIcc(ContentValues values) {
+    private Uri insertMessageIntoIcc(Uri uri, ContentValues values) {
         if (values == null) {
-            return INSERT_SMS_INTO_ICC_FAIL;
+            return Uri.withAppendedPath(uri, INSERT_SMS_INTO_ICC_FAIL);
         }
         int subId = values.getAsInteger(PhoneConstants.SUBSCRIPTION_KEY);
         String address = values.getAsString(Sms.ADDRESS);
@@ -740,7 +740,8 @@ public class SmsProvider extends ContentProvider {
         }
         boolean result = SmsManager.getSmsManagerForSubscriptionId(subId).copyMessageToIcc(null,
                 pdu, status);
-        return result ? INSERT_SMS_INTO_ICC_SUCCESS : INSERT_SMS_INTO_ICC_FAIL;
+        return Uri.withAppendedPath(uri,
+                (result ? INSERT_SMS_INTO_ICC_SUCCESS : INSERT_SMS_INTO_ICC_FAIL));
     }
 
     /**
