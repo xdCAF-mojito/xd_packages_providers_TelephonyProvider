@@ -54,6 +54,7 @@ import static android.provider.Telephony.Carriers.UNEDITED;
 import static android.provider.Telephony.Carriers.USER;
 import static android.provider.Telephony.Carriers.USER_DELETED;
 import static android.provider.Telephony.Carriers.USER_DELETED_BUT_PRESENT_IN_XML;
+import static android.provider.Telephony.Carriers.USER_EDITABLE;
 import static android.provider.Telephony.Carriers.USER_EDITED;
 import static android.provider.Telephony.Carriers.USER_VISIBLE;
 import static android.provider.Telephony.Carriers.WAIT_TIME;
@@ -117,7 +118,7 @@ public class TelephonyProvider extends ContentProvider
     private static final boolean DBG = true;
     private static final boolean VDBG = false; // STOPSHIP if true
 
-    private static final int DATABASE_VERSION = 20 << 16;
+    private static final int DATABASE_VERSION = 21 << 16;
     private static final int URL_UNKNOWN = 0;
     private static final int URL_TELEPHONY = 1;
     private static final int URL_CURRENT = 2;
@@ -217,6 +218,7 @@ public class TelephonyProvider extends ContentProvider
         CARRIERS_UNIQUE_FIELDS.add(PROFILE_ID);
         CARRIERS_UNIQUE_FIELDS.add(PROTOCOL);
         CARRIERS_UNIQUE_FIELDS.add(ROAMING_PROTOCOL);
+        CARRIERS_UNIQUE_FIELDS.add(USER_EDITABLE);
         CARRIERS_UNIQUE_FIELDS.add(TYPE);
     }
 
@@ -257,6 +259,7 @@ public class TelephonyProvider extends ContentProvider
                 MTU + " INTEGER DEFAULT 0," +
                 EDITED + " INTEGER DEFAULT " + UNEDITED + "," +
                 USER_VISIBLE + " BOOLEAN DEFAULT 1," +
+                USER_EDITABLE + " BOOLEAN DEFAULT 1," +
                 PERSISTENT + " BOOLEAN DEFAULT 0," +
                 READ_ONLY + " BOOLEAN DEFAULT 0," +
                 // Uniqueness collisions are used to trigger merge code so if a field is listed
@@ -879,10 +882,25 @@ public class TelephonyProvider extends ContentProvider
                 } catch (SQLiteException e) {
                     if (DBG) {
                         log("onUpgrade skipping " + SIMINFO_TABLE + " upgrade. " +
-                                " The table will get created in onOpen.");
+                                "The table will get created in onOpen.");
                     }
                 }
                 oldVersion = 20 << 16 | 6;
+            }
+            if (oldVersion < (21 << 16 | 6)) {
+                try {
+                    // Try to update the siminfo table. It might not be there.
+                    db.execSQL("ALTER TABLE " + CARRIERS_TABLE + " ADD COLUMN " +
+                            USER_EDITABLE + " INTEGER DEFAULT 1;");
+                } catch (SQLiteException e) {
+                    // This is possible if the column already exists which may be the case if the
+                    // table was just created as part of upgrade to version 19
+                    if (DBG) {
+                        log("onUpgrade skipping " + CARRIERS_TABLE + " upgrade. " +
+                                "The table will get created in onOpen.");
+                    }
+                }
+                oldVersion = 21 << 16 | 6;
             }
             if (DBG) {
                 log("dbh.onUpgrade:- db=" + db + " oldV=" + oldVersion + " newV=" + newVersion);
@@ -1297,6 +1315,7 @@ public class TelephonyProvider extends ContentProvider
             addBoolAttribute(parser, "carrier_enabled", map, CARRIER_ENABLED);
             addBoolAttribute(parser, "modem_cognitive", map, MODEM_COGNITIVE);
             addBoolAttribute(parser, "user_visible", map, USER_VISIBLE);
+            addBoolAttribute(parser, "user_editable", map, USER_EDITABLE);
             addBoolAttribute(parser, "persistent", map, PERSISTENT);
             addBoolAttribute(parser, "read_only", map, READ_ONLY);
 
@@ -1721,8 +1740,7 @@ public class TelephonyProvider extends ContentProvider
                 r.getString(R.string.apn_source_service)));
         log("binding to service to restore apns, intent=" + intent);
         try {
-            context.startForegroundService(intent);
-            if (context.bindService(intent, connection, Context.BIND_IMPORTANT)) {
+            if (context.bindService(intent, connection, Context.BIND_AUTO_CREATE)) {
                 synchronized (mLock) {
                     while (mIApnSourceService == null) {
                         try {
