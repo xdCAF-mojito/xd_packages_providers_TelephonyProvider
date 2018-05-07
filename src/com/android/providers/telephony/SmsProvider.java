@@ -57,6 +57,8 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.text.SimpleDateFormat;
+import com.android.internal.annotations.VisibleForTesting;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Locale;
@@ -127,6 +129,8 @@ public class SmsProvider extends ContentProvider {
     @Override
     public boolean onCreate() {
         setAppOps(AppOpsManager.OP_READ_SMS, AppOpsManager.OP_WRITE_SMS);
+        // So we have two database files. One in de, one in ce. Here only "raw" table is in
+        // mDeOpenHelper, other tables are all in mCeOpenHelper.
         mDeOpenHelper = MmsSmsDatabaseHelper.getInstanceForDe(getContext());
         mCeOpenHelper = MmsSmsDatabaseHelper.getInstanceForCe(getContext());
         TelephonyBackupAgent.DeferredSmsMmsRestoreService.startIfFilesExist(getContext());
@@ -334,7 +338,8 @@ public class SmsProvider extends ContentProvider {
     }
 
     private SQLiteOpenHelper getDBOpenHelper(int match) {
-        if (match == SMS_RAW_MESSAGE) {
+        // Raw table is stored on de database. Other tables are stored in ce database.
+        if (match == SMS_RAW_MESSAGE || match == SMS_RAW_MESSAGE_PERMANENT_DELETE) {
             return mDeOpenHelper;
         }
         return mCeOpenHelper;
@@ -1256,9 +1261,12 @@ public class SmsProvider extends ContentProvider {
     }
 
     // Db open helper for tables stored in CE(Credential Encrypted) storage.
-    private SQLiteOpenHelper mCeOpenHelper;
-    // Db open helper for tables stored in DE(Device Encrypted) storage.
-    private SQLiteOpenHelper mDeOpenHelper;
+    @VisibleForTesting
+    public SQLiteOpenHelper mCeOpenHelper;
+    // Db open helper for tables stored in DE(Device Encrypted) storage. It's currently only used
+    // to store raw table.
+    @VisibleForTesting
+    public SQLiteOpenHelper mDeOpenHelper;
 
     private final static String TAG = "SmsProvider";
     private final static String VND_ANDROID_SMS = "vnd.android.cursor.item/sms";
