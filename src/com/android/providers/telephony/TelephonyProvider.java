@@ -304,6 +304,7 @@ public class TelephonyProvider extends ContentProvider
                 USER_VISIBLE + " BOOLEAN DEFAULT 1," +
                 USER_EDITABLE + " BOOLEAN DEFAULT 1," +
                 OWNED_BY + " INTEGER DEFAULT " + OWNED_BY_OTHERS + "," +
+                APN_SET_ID + " INTEGER DEFAULT " + NO_SET_SET + "," +
                 PERSISTENT + " BOOLEAN DEFAULT 0," +
                 READ_ONLY + " BOOLEAN DEFAULT 0," +
                 // Uniqueness collisions are used to trigger merge code so if a field is listed
