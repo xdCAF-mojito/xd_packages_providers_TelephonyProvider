@@ -18,6 +18,7 @@
 package com.android.providers.telephony;
 
 import static android.provider.Telephony.Carriers.APN;
+import static android.provider.Telephony.Carriers.APN_SET_ID;
 import static android.provider.Telephony.Carriers.AUTH_TYPE;
 import static android.provider.Telephony.Carriers.BEARER;
 import static android.provider.Telephony.Carriers.BEARER_BITMASK;
@@ -42,6 +43,7 @@ import static android.provider.Telephony.Carriers.MVNO_MATCH_DATA;
 import static android.provider.Telephony.Carriers.MVNO_TYPE;
 import static android.provider.Telephony.Carriers.NAME;
 import static android.provider.Telephony.Carriers.NETWORK_TYPE_BITMASK;
+import static android.provider.Telephony.Carriers.NO_SET_SET;
 import static android.provider.Telephony.Carriers.NUMERIC;
 import static android.provider.Telephony.Carriers.OWNED_BY;
 import static android.provider.Telephony.Carriers.OWNED_BY_OTHERS;
@@ -131,7 +133,7 @@ public class TelephonyProvider extends ContentProvider
     private static final boolean DBG = true;
     private static final boolean VDBG = false; // STOPSHIP if true
 
-    private static final int DATABASE_VERSION = 25 << 16;
+    private static final int DATABASE_VERSION = 26 << 16;
     private static final int URL_UNKNOWN = 0;
     private static final int URL_TELEPHONY = 1;
     private static final int URL_CURRENT = 2;
@@ -257,6 +259,7 @@ public class TelephonyProvider extends ContentProvider
         CARRIERS_UNIQUE_FIELDS_DEFAULTS.put(ROAMING_PROTOCOL, "IP");
         CARRIERS_UNIQUE_FIELDS_DEFAULTS.put(USER_EDITABLE, "1");
         CARRIERS_UNIQUE_FIELDS_DEFAULTS.put(OWNED_BY, String.valueOf(OWNED_BY_OTHERS));
+        CARRIERS_UNIQUE_FIELDS_DEFAULTS.put(APN_SET_ID, String.valueOf(NO_SET_SET));
 
         CARRIERS_UNIQUE_FIELDS.addAll(CARRIERS_UNIQUE_FIELDS_DEFAULTS.keySet());
     }
@@ -301,6 +304,7 @@ public class TelephonyProvider extends ContentProvider
                 USER_VISIBLE + " BOOLEAN DEFAULT 1," +
                 USER_EDITABLE + " BOOLEAN DEFAULT 1," +
                 OWNED_BY + " INTEGER DEFAULT " + OWNED_BY_OTHERS + "," +
+                APN_SET_ID + " INTEGER DEFAULT " + NO_SET_SET + "," +
                 PERSISTENT + " BOOLEAN DEFAULT 0," +
                 READ_ONLY + " BOOLEAN DEFAULT 0," +
                 // Uniqueness collisions are used to trigger merge code so if a field is listed
@@ -1019,6 +1023,20 @@ public class TelephonyProvider extends ContentProvider
                 }
                 oldVersion = 25 << 16 | 6;
             }
+            if (oldVersion < (26 << 16 | 6)) {
+                // Add a new column Carriers.APN_SET_ID into the database and set the value to
+                // Carriers.NO_SET_SET by default.
+                try {
+                    db.execSQL("ALTER TABLE " + CARRIERS_TABLE + " ADD COLUMN " +
+                            APN_SET_ID + " INTEGER DEFAULT " + NO_SET_SET + ";");
+                } catch (SQLiteException e) {
+                    if (DBG) {
+                        log("onUpgrade skipping " + CARRIERS_TABLE + " upgrade. " +
+                                "The table will get created in onOpen.");
+                    }
+                }
+                oldVersion = 26 << 16 | 6;
+            }
             if (DBG) {
                 log("dbh.onUpgrade:- db=" + db + " oldV=" + oldVersion + " newV=" + newVersion);
             }
@@ -1611,6 +1629,7 @@ public class TelephonyProvider extends ContentProvider
             addIntAttribute(parser, "wait_time", map, WAIT_TIME);
             addIntAttribute(parser, "max_conns_time", map, MAX_CONNS_TIME);
             addIntAttribute(parser, "mtu", map, MTU);
+            addIntAttribute(parser, "apn_set_id", map, APN_SET_ID);
 
 
             addBoolAttribute(parser, "carrier_enabled", map, CARRIER_ENABLED);
