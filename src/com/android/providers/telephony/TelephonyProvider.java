@@ -18,6 +18,7 @@
 package com.android.providers.telephony;
 
 import static android.provider.Telephony.Carriers.APN;
+import static android.provider.Telephony.Carriers.APN_SET_ID;
 import static android.provider.Telephony.Carriers.AUTH_TYPE;
 import static android.provider.Telephony.Carriers.BEARER;
 import static android.provider.Telephony.Carriers.BEARER_BITMASK;
@@ -42,6 +43,7 @@ import static android.provider.Telephony.Carriers.MVNO_MATCH_DATA;
 import static android.provider.Telephony.Carriers.MVNO_TYPE;
 import static android.provider.Telephony.Carriers.NAME;
 import static android.provider.Telephony.Carriers.NETWORK_TYPE_BITMASK;
+import static android.provider.Telephony.Carriers.NO_SET_SET;
 import static android.provider.Telephony.Carriers.NUMERIC;
 import static android.provider.Telephony.Carriers.OWNED_BY;
 import static android.provider.Telephony.Carriers.OWNED_BY_OTHERS;
@@ -131,7 +133,7 @@ public class TelephonyProvider extends ContentProvider
     private static final boolean DBG = true;
     private static final boolean VDBG = false; // STOPSHIP if true
 
-    private static final int DATABASE_VERSION = 25 << 16;
+    private static final int DATABASE_VERSION = 26 << 16;
     private static final int URL_UNKNOWN = 0;
     private static final int URL_TELEPHONY = 1;
     private static final int URL_CURRENT = 2;
@@ -153,6 +155,8 @@ public class TelephonyProvider extends ContentProvider
     private static final int URL_FILTERED = 18;
     private static final int URL_FILTERED_ID = 19;
     private static final int URL_ENFORCE_MANAGED = 20;
+    private static final int URL_PREFERAPNSET = 21;
+    private static final int URL_PREFERAPNSET_USING_SUBID = 22;
 
 
     private static final String TAG = "TelephonyProvider";
@@ -179,7 +183,7 @@ public class TelephonyProvider extends ContentProvider
 
     private static final String PARTNER_APNS_PATH = "etc/apns-conf.xml";
     private static final String OEM_APNS_PATH = "telephony/apns-conf.xml";
-    private static final String OTA_UPDATED_APNS_PATH = "misc/apns-conf.xml";
+    private static final String OTA_UPDATED_APNS_PATH = "misc/apns/apns-conf.xml";
     private static final String OLD_APNS_PATH = "etc/old-apns-conf.xml";
 
     private static final String DEFAULT_PROTOCOL = "IP";
@@ -257,6 +261,7 @@ public class TelephonyProvider extends ContentProvider
         CARRIERS_UNIQUE_FIELDS_DEFAULTS.put(ROAMING_PROTOCOL, "IP");
         CARRIERS_UNIQUE_FIELDS_DEFAULTS.put(USER_EDITABLE, "1");
         CARRIERS_UNIQUE_FIELDS_DEFAULTS.put(OWNED_BY, String.valueOf(OWNED_BY_OTHERS));
+        CARRIERS_UNIQUE_FIELDS_DEFAULTS.put(APN_SET_ID, String.valueOf(NO_SET_SET));
 
         CARRIERS_UNIQUE_FIELDS.addAll(CARRIERS_UNIQUE_FIELDS_DEFAULTS.keySet());
     }
@@ -301,6 +306,7 @@ public class TelephonyProvider extends ContentProvider
                 USER_VISIBLE + " BOOLEAN DEFAULT 1," +
                 USER_EDITABLE + " BOOLEAN DEFAULT 1," +
                 OWNED_BY + " INTEGER DEFAULT " + OWNED_BY_OTHERS + "," +
+                APN_SET_ID + " INTEGER DEFAULT " + NO_SET_SET + "," +
                 PERSISTENT + " BOOLEAN DEFAULT 0," +
                 READ_ONLY + " BOOLEAN DEFAULT 0," +
                 // Uniqueness collisions are used to trigger merge code so if a field is listed
@@ -367,6 +373,7 @@ public class TelephonyProvider extends ContentProvider
         s_urlMatcher.addURI("telephony", "carriers/restore", URL_RESTOREAPN);
         s_urlMatcher.addURI("telephony", "carriers/preferapn", URL_PREFERAPN);
         s_urlMatcher.addURI("telephony", "carriers/preferapn_no_update", URL_PREFERAPN_NO_UPDATE);
+        s_urlMatcher.addURI("telephony", "carriers/preferapnset", URL_PREFERAPNSET);
 
         s_urlMatcher.addURI("telephony", "siminfo", URL_SIMINFO);
 
@@ -376,6 +383,8 @@ public class TelephonyProvider extends ContentProvider
         s_urlMatcher.addURI("telephony", "carriers/preferapn/subId/*", URL_PREFERAPN_USING_SUBID);
         s_urlMatcher.addURI("telephony", "carriers/preferapn_no_update/subId/*",
                 URL_PREFERAPN_NO_UPDATE_USING_SUBID);
+        s_urlMatcher.addURI("telephony", "carriers/preferapnset/subId/*",
+                URL_PREFERAPNSET_USING_SUBID);
 
         s_urlMatcher.addURI("telephony", "carriers/update_db", URL_UPDATE_DB);
         s_urlMatcher.addURI("telephony", "carriers/delete", URL_DELETE);
@@ -1019,6 +1028,20 @@ public class TelephonyProvider extends ContentProvider
                 }
                 oldVersion = 25 << 16 | 6;
             }
+            if (oldVersion < (26 << 16 | 6)) {
+                // Add a new column Carriers.APN_SET_ID into the database and set the value to
+                // Carriers.NO_SET_SET by default.
+                try {
+                    db.execSQL("ALTER TABLE " + CARRIERS_TABLE + " ADD COLUMN " +
+                            APN_SET_ID + " INTEGER DEFAULT " + NO_SET_SET + ";");
+                } catch (SQLiteException e) {
+                    if (DBG) {
+                        log("onUpgrade skipping " + CARRIERS_TABLE + " upgrade. " +
+                                "The table will get created in onOpen.");
+                    }
+                }
+                oldVersion = 26 << 16 | 6;
+            }
             if (DBG) {
                 log("dbh.onUpgrade:- db=" + db + " oldV=" + oldVersion + " newV=" + newVersion);
             }
@@ -1611,6 +1634,7 @@ public class TelephonyProvider extends ContentProvider
             addIntAttribute(parser, "wait_time", map, WAIT_TIME);
             addIntAttribute(parser, "max_conns_time", map, MAX_CONNS_TIME);
             addIntAttribute(parser, "mtu", map, MTU);
+            addIntAttribute(parser, "apn_set_id", map, APN_SET_ID);
 
 
             addBoolAttribute(parser, "carrier_enabled", map, CARRIER_ENABLED);
@@ -2222,6 +2246,16 @@ public class TelephonyProvider extends ContentProvider
         return apnId;
     }
 
+    private int getPreferredApnSetId(int subId) {
+        SharedPreferences sp = getContext().getSharedPreferences(PREF_FILE_FULL_APN,
+                Context.MODE_PRIVATE);
+        try {
+            return Integer.parseInt(sp.getString(APN_SET_ID + subId, null));
+        } catch (NumberFormatException e) {
+            return NO_SET_SET;
+        }
+    }
+
     private void deletePreferredApnId() {
         SharedPreferences sp = getContext().getSharedPreferences(PREF_FILE_APN,
                 Context.MODE_PRIVATE);
@@ -2421,6 +2455,27 @@ public class TelephonyProvider extends ContentProvider
                 break;
             }
 
+            case URL_PREFERAPNSET_USING_SUBID: {
+                subIdString = url.getLastPathSegment();
+                try {
+                    subId = Integer.parseInt(subIdString);
+                } catch (NumberFormatException e) {
+                    loge("NumberFormatException" + e);
+                    return null;
+                }
+                if (DBG) log("subIdString = " + subIdString + " subId = " + subId);
+                // TODO b/74213956 turn this back on once insertion includes correct sub id
+                // constraints.add(SUBSCRIPTION_ID + "=" + subIdString);
+            }
+            // intentional fall through from above case
+            case URL_PREFERAPNSET: {
+                final int set = getPreferredApnSetId(subId);
+                if (set != NO_SET_SET) {
+                    constraints.add(APN_SET_ID + "=" + set);
+                }
+                break;
+            }
+
             case URL_DPC: {
                 ensureCallingFromSystemOrPhoneUid("URL_DPC called from non SYSTEM_UID.");
                 // DPC query only returns DPC records.
@@ -2527,6 +2582,8 @@ public class TelephonyProvider extends ContentProvider
         case URL_PREFERAPN_NO_UPDATE_USING_SUBID:
         case URL_PREFERAPN:
         case URL_PREFERAPN_NO_UPDATE:
+        case URL_PREFERAPNSET:
+        case URL_PREFERAPNSET_USING_SUBID:
             return "vnd.android.cursor.item/telephony-carrier";
 
         default:
