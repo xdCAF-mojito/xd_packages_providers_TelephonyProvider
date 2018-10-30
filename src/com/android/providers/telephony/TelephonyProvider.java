@@ -201,9 +201,10 @@ public class TelephonyProvider extends ContentProvider
     private IApnSourceService mIApnSourceService;
 
     static {
-        // Columns not included in UNIQUE constraint: name, current, edited, user, server, password,
+        // Columns not included in UNIQUE constraint: current, edited, user, server, password,
         // authtype, type, protocol, roaming_protocol, sub_id, modem_cognitive, max_conns,
         // wait_time, max_conns_time, mtu, bearer_bitmask, user_visible
+        CARRIERS_UNIQUE_FIELDS.add(NAME);
         CARRIERS_UNIQUE_FIELDS.add(NUMERIC);
         CARRIERS_UNIQUE_FIELDS.add(MCC);
         CARRIERS_UNIQUE_FIELDS.add(MNC);
@@ -266,7 +267,7 @@ public class TelephonyProvider extends ContentProvider
                 READ_ONLY + " BOOLEAN DEFAULT 0," +
                 // Uniqueness collisions are used to trigger merge code so if a field is listed
                 // here it means we will accept both (user edited + new apn_conf definition)
-                // Columns not included in UNIQUE constraint: name, current, edited,
+                // Columns not included in UNIQUE constraint: current, edited,
                 // user, server, password, authtype, type, sub_id, modem_cognitive, max_conns,
                 // wait_time, max_conns_time, mtu, bearer_bitmask, user_visible.
                 "UNIQUE (" + TextUtils.join(", ", CARRIERS_UNIQUE_FIELDS) + "));";
