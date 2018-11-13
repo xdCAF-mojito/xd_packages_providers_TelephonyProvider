@@ -464,6 +464,7 @@ public class TelephonyProvider extends ContentProvider
             mContext = context;
             // Memory optimization - close idle connections after 30s of inactivity
             setIdleConnectionTimeout(IDLE_CONNECTION_TIMEOUT_MS);
+            setWriteAheadLoggingEnabled(false);
         }
 
         @VisibleForTesting
@@ -2220,7 +2221,8 @@ public class TelephonyProvider extends ContentProvider
                 r.getString(R.string.apn_source_service)));
         log("binding to service to restore apns, intent=" + intent);
         try {
-            if (context.bindService(intent, connection, Context.BIND_IMPORTANT)) {
+            if (context.bindService(intent, connection, Context.BIND_IMPORTANT |
+                        Context.BIND_AUTO_CREATE)) {
                 synchronized (mLock) {
                     while (mIApnSourceService == null) {
                         try {
@@ -3292,7 +3294,7 @@ public class TelephonyProvider extends ContentProvider
         TelephonyManager telephonyManager =
                 (TelephonyManager) getContext().getSystemService(Context.TELEPHONY_SERVICE);
         for (String pkg : packages) {
-            if (telephonyManager.checkCarrierPrivilegesForPackage(pkg) ==
+            if (telephonyManager.checkCarrierPrivilegesForPackageAnyPhone(pkg) ==
                     TelephonyManager.CARRIER_PRIVILEGE_STATUS_HAS_ACCESS) {
                 return;
             }
