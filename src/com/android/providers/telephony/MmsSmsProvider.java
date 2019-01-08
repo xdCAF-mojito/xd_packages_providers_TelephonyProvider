@@ -1433,9 +1433,6 @@ public class MmsSmsProvider extends ContentProvider {
             defaultSmsApp = "None";
         }
         writer.println("Default SMS app: " + defaultSmsApp);
-        if (mOpenHelper != null) {
-            ((MmsSmsDatabaseHelper) mOpenHelper).dump(fd, writer, args);
-        }
     }
 
     private Cursor getSearchMessages(Uri uri, SQLiteDatabase db,
