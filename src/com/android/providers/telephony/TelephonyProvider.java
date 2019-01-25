@@ -229,13 +229,6 @@ public class TelephonyProvider extends ContentProvider
     private static final String IS_OWNED_BY_DPC = OWNED_BY + "=" + OWNED_BY_DPC;
     private static final String IS_NOT_OWNED_BY_DPC = OWNED_BY + "!=" + OWNED_BY_DPC;
 
-    // Indicate whether the preset APN can be deleted
-    // The default value is false means user can delete it
-    private static final String PERSISTENT = "persistent";
-    // Indicate whether the preset APN can be modified
-    // The default value is false means user can modify it
-    private static final String READ_ONLY = "read_only";
-
     private static final String ORDER_BY_SUB_ID =
             SubscriptionManager.UNIQUE_KEY_SUBSCRIPTION_ID + " ASC";
 
@@ -333,8 +326,6 @@ public class TelephonyProvider extends ContentProvider
                 USER_EDITABLE + " BOOLEAN DEFAULT 1," +
                 OWNED_BY + " INTEGER DEFAULT " + OWNED_BY_OTHERS + "," +
                 APN_SET_ID + " INTEGER DEFAULT " + NO_APN_SET_ID + "," +
-                PERSISTENT + " BOOLEAN DEFAULT 0," +
-                READ_ONLY + " BOOLEAN DEFAULT 0," +
                 // Uniqueness collisions are used to trigger merge code so if a field is listed
                 // here it means we will accept both (user edited + new apn_conf definition)
                 // Columns not included in UNIQUE constraint: name, current, edited,
@@ -1870,8 +1861,6 @@ public class TelephonyProvider extends ContentProvider
             addBoolAttribute(parser, "modem_cognitive", map, MODEM_PERSIST);
             addBoolAttribute(parser, "user_visible", map, USER_VISIBLE);
             addBoolAttribute(parser, "user_editable", map, USER_EDITABLE);
-            addBoolAttribute(parser, "persistent", map, PERSISTENT);
-            addBoolAttribute(parser, "read_only", map, READ_ONLY);
 
             int networkTypeBitmask = 0;
             String networkTypeList = parser.getAttributeValue(null, "network_type_bitmask");
