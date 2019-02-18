@@ -143,7 +143,7 @@ public class TelephonyProvider extends ContentProvider
     private static final boolean DBG = true;
     private static final boolean VDBG = false; // STOPSHIP if true
 
-    private static final int DATABASE_VERSION = 33 << 16;
+    private static final int DATABASE_VERSION = 34 << 16;
     private static final int URL_UNKNOWN = 0;
     private static final int URL_TELEPHONY = 1;
     private static final int URL_CURRENT = 2;
@@ -228,13 +228,6 @@ public class TelephonyProvider extends ContentProvider
             EDITED_STATUS + "!=" + CARRIER_DELETED_BUT_PRESENT_IN_XML;
     private static final String IS_OWNED_BY_DPC = OWNED_BY + "=" + OWNED_BY_DPC;
     private static final String IS_NOT_OWNED_BY_DPC = OWNED_BY + "!=" + OWNED_BY_DPC;
-
-    // Indicate whether the preset APN can be deleted
-    // The default value is false means user can delete it
-    private static final String PERSISTENT = "persistent";
-    // Indicate whether the preset APN can be modified
-    // The default value is false means user can modify it
-    private static final String READ_ONLY = "read_only";
 
     private static final String ORDER_BY_SUB_ID =
             SubscriptionManager.UNIQUE_KEY_SUBSCRIPTION_ID + " ASC";
@@ -333,8 +326,6 @@ public class TelephonyProvider extends ContentProvider
                 USER_EDITABLE + " BOOLEAN DEFAULT 1," +
                 OWNED_BY + " INTEGER DEFAULT " + OWNED_BY_OTHERS + "," +
                 APN_SET_ID + " INTEGER DEFAULT " + NO_APN_SET_ID + "," +
-                PERSISTENT + " BOOLEAN DEFAULT 0," +
-                READ_ONLY + " BOOLEAN DEFAULT 0," +
                 // Uniqueness collisions are used to trigger merge code so if a field is listed
                 // here it means we will accept both (user edited + new apn_conf definition)
                 // Columns not included in UNIQUE constraint: name, current, edited,
@@ -395,7 +386,9 @@ public class TelephonyProvider extends ContentProvider
                 + SubscriptionManager.GROUP_UUID + " TEXT,"
                 + SubscriptionManager.IS_METERED + " INTEGER DEFAULT 1,"
                 + SubscriptionManager.ISO_COUNTRY_CODE + " TEXT,"
-                + SubscriptionManager.CARRIER_ID + " INTEGER DEFAULT -1"
+                + SubscriptionManager.CARRIER_ID + " INTEGER DEFAULT -1,"
+                + SubscriptionManager.PROFILE_CLASS + " INTEGER DEFAULT "
+                + SubscriptionManager.PROFILE_CLASS_DEFAULT
                 + ");";
     }
 
@@ -620,7 +613,9 @@ public class TelephonyProvider extends ContentProvider
             File confFile = new File(Environment.getRootDirectory(), PARTNER_APNS_PATH);
             File oemConfFile =  new File(Environment.getOemDirectory(), OEM_APNS_PATH);
             File updatedConfFile = new File(Environment.getDataDirectory(), OTA_UPDATED_APNS_PATH);
+            File productConfFile = new File(Environment.getProductDirectory(), PARTNER_APNS_PATH);
             confFile = pickSecondIfExists(confFile, oemConfFile);
+            confFile = pickSecondIfExists(confFile, productConfFile);
             confFile = pickSecondIfExists(confFile, updatedConfFile);
             return confFile;
         }
@@ -1179,7 +1174,7 @@ public class TelephonyProvider extends ContentProvider
                 }
                 oldVersion = 30 << 16 | 6;
             }
-            
+
             if (oldVersion < (31 << 16 | 6)) {
                 try {
                     // Try to update the siminfo table. It might not be there.
@@ -1220,6 +1215,21 @@ public class TelephonyProvider extends ContentProvider
                     }
                 }
                 oldVersion = 33 << 16 | 6;
+            }
+
+            if (oldVersion < (34 << 16 | 6)) {
+                try {
+                    // Try to update the siminfo table. It might not be there.
+                    db.execSQL("ALTER TABLE " + SIMINFO_TABLE + " ADD COLUMN " +
+                            SubscriptionManager.PROFILE_CLASS + " INTEGER DEFAULT " +
+                            SubscriptionManager.PROFILE_CLASS_DEFAULT + ";");
+                } catch (SQLiteException e) {
+                    if (DBG) {
+                        log("onUpgrade skipping " + SIMINFO_TABLE + " upgrade. " +
+                                "The table will get created in onOpen.");
+                    }
+                }
+                oldVersion = 34 << 16 | 6;
             }
 
             if (DBG) {
@@ -1870,8 +1880,6 @@ public class TelephonyProvider extends ContentProvider
             addBoolAttribute(parser, "modem_cognitive", map, MODEM_PERSIST);
             addBoolAttribute(parser, "user_visible", map, USER_VISIBLE);
             addBoolAttribute(parser, "user_editable", map, USER_EDITABLE);
-            addBoolAttribute(parser, "persistent", map, PERSISTENT);
-            addBoolAttribute(parser, "read_only", map, READ_ONLY);
 
             int networkTypeBitmask = 0;
             String networkTypeList = parser.getAttributeValue(null, "network_type_bitmask");
