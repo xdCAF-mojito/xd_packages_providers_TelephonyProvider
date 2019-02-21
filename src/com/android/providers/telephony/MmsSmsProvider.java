@@ -103,6 +103,7 @@ public class MmsSmsProvider extends ContentProvider {
     private static final int URI_MESSAGES_COUNT                    = 19;
     private static final int URI_UPDATE_THREAD_DATE                = 20;
     private static final int URI_SEARCH_MESSAGE                    = 21;
+    private static final int URI_ADDRESS_TO_THREAD                 = 22;
     // Escape character
     private static final char SEARCH_ESCAPE_CHARACTER = '!';
 
@@ -315,6 +316,7 @@ public class MmsSmsProvider extends ContentProvider {
         URI_MATCHER.addURI(AUTHORITY, "locked/#", URI_FIRST_LOCKED_MESSAGE_BY_THREAD_ID);
 
         URI_MATCHER.addURI(AUTHORITY, "messageIdToThread", URI_MESSAGE_ID_TO_THREAD);
+        URI_MATCHER.addURI(AUTHORITY, "address", URI_ADDRESS_TO_THREAD);
         initializeColumnSets();
     }
 
@@ -533,6 +535,15 @@ public class MmsSmsProvider extends ContentProvider {
                         projection, selection, sortOrder, smsTable, pduTable);
                 break;
             }
+
+            case URI_ADDRESS_TO_THREAD: {
+                String address = uri.getQueryParameter("address_info");
+                if (DEBUG) {
+                    Log.d(LOG_TAG,"query threadId by address:"+address);
+                }
+                cursor = getThreadIdsByRecipient(getRecipientIdByAddress(address));
+                break;
+            }
             default:
                 throw new IllegalStateException("Unrecognized URI:" + uri);
         }
@@ -541,6 +552,66 @@ public class MmsSmsProvider extends ContentProvider {
             cursor.setNotificationUri(getContext().getContentResolver(), MmsSms.CONTENT_URI);
         }
         return cursor;
+    }
+
+    private long getRecipientIdByAddress(String address) {
+        boolean isEmail = Mms.isEmailAddress(address);
+        String refinedAddress = isEmail ? address.toLowerCase() : address;
+        String selection = "address=?";
+        String[] selectionArgs;
+        if (isEmail) {
+            selectionArgs = new String[] { refinedAddress };
+        } else {
+            selection += " OR "
+                    + String.format("PHONE_NUMBERS_EQUAL(address, ?, %d)",
+                            (mUseStrictPhoneNumberComparation ? 1 : 0));
+            selectionArgs = new String[] { refinedAddress, refinedAddress };
+        }
+        Log.d(LOG_TAG, "getRecipientIdByAddress selection:" + selection);
+        Cursor cursor = null;
+
+        try {
+            SQLiteDatabase db = mOpenHelper.getReadableDatabase();
+            cursor = db.query("canonical_addresses",
+                    ID_PROJECTION,
+                    selection, selectionArgs, null, null, null);
+
+            if (cursor.getCount() == 0) {
+                return RESULT_FOR_ID_NOT_FOUND;
+            }
+
+            if (cursor.moveToFirst()) {
+                return cursor.getLong(cursor.getColumnIndexOrThrow(BaseColumns._ID));
+            }
+        } finally {
+            if (cursor != null) {
+                cursor.close();
+            }
+        }
+        return RESULT_FOR_ID_NOT_FOUND;
+    }
+
+    private Cursor getThreadIdsByRecipient(long recipientId) {
+        if (recipientId == RESULT_FOR_ID_NOT_FOUND)
+            return null;
+        String recipientIds = String.valueOf(recipientId);
+        String THREAD_QUERY = "SELECT _id FROM threads "
+            + "WHERE recipient_ids = ? or recipient_ids like '"
+            + recipientIds + " %' or recipient_ids like '% "
+            + recipientIds + "' or recipient_ids like '% "
+            + recipientIds + " %'";
+
+        if (DEBUG) {
+            Log.v(LOG_TAG, "getThreadId THREAD_QUERY: " + THREAD_QUERY
+                    + ", recipientIds=" + recipientIds);
+        }
+        try {
+            return mOpenHelper.getReadableDatabase().rawQuery(THREAD_QUERY,
+                    new String[] { recipientIds });
+        } catch (Exception e) {
+            Log.d(LOG_TAG, "get thread by recipient id exception:" + e);
+            return null;
+        }
     }
 
     /**
@@ -1442,130 +1513,20 @@ public class MmsSmsProvider extends ContentProvider {
 
     private Cursor getSearchMessages(Uri uri, SQLiteDatabase db,
                                      String smsTable, String pduTable) {
-        int searchMode = Integer.parseInt(uri.getQueryParameter("search_mode"));
-        String keyStr = uri.getQueryParameter("key_str");
-        String address = uri.getQueryParameter("contact_addr");
-        String searchString = "%" + addEscapeCharacter(keyStr) + "%";
-        String threadIdString = DEFAULT_STRING_ZERO;
-
-        if (searchMode == SEARCH_MODE_NAME) {
-            threadIdString = getThreadIdByAddress(address);
-            if (threadIdString.equals(DEFAULT_STRING_ZERO)) {
-                searchMode = SEARCH_MODE_CONTENT;
-            }
-        }
+        String searchString = "%" + uri.getQueryParameter("key_str") + "%";
+        String threadIdString = uri.getQueryParameter("thread_ids");
+        int searchMode = SEARCH_MODE_NAME;
+        if (threadIdString == null || threadIdString.equals(DEFAULT_STRING_ZERO))
+            searchMode = SEARCH_MODE_CONTENT;
         if (DEBUG) {
             Log.d(LOG_TAG, "keystr=" + searchString +
-                    "|searchMode=" + searchMode + "|address=" + address);
+                    "|searchMode=" + searchMode + "|threadIdString=" + threadIdString);
         }
         String rawQuery = getConversationQueryString(searchMode, smsTable,
                 pduTable, threadIdString);
         String[] strArray = new String[]{searchString, searchString, searchString,
                 searchString, searchString};
         return db.rawQuery(rawQuery, strArray);
-    }
-
-    private String getThreadIdByAddress(String keyStr) {
-        long[] addressIdSet = getSortedSet(getThreadIdsByAddressList(keyStr.split(",")));
-        String threadIdString = getCommaSeparatedId(addressIdSet);
-        if (TextUtils.isEmpty(threadIdString)) {
-            threadIdString = DEFAULT_STRING_ZERO;
-        }
-        if (DEBUG) {
-            Log.d(LOG_TAG, "getThreadIdByAddress=" + threadIdString);
-        }
-        return threadIdString;
-    }
-
-    private String addEscapeCharacter(String keyStr) {
-        if (keyStr == null) {
-            return keyStr;
-        }
-        if (keyStr.contains("%") ||
-                keyStr.contains(String.valueOf(SEARCH_ESCAPE_CHARACTER))) {
-            StringBuilder searchKeyStrBuilder = new StringBuilder();
-            int keyStrLen = keyStr.length();
-            for (int i = 0; i < keyStrLen; i++) {
-                if (keyStr.charAt(i) == '%' ||
-                        keyStr.charAt(i) == SEARCH_ESCAPE_CHARACTER) {
-                    searchKeyStrBuilder.append(SEARCH_ESCAPE_CHARACTER);
-                    searchKeyStrBuilder.append(keyStr.charAt(i));
-                    continue;
-                }
-                searchKeyStrBuilder.append(keyStr.charAt(i));
-            }
-            return searchKeyStrBuilder.toString();
-        }
-        return keyStr;
-    }
-
-    private Set<Long> getThreadIdsByAddressList(String[] addresses) {
-        int count = addresses.length;
-        Set<Long> result = new HashSet<Long>(count);
-
-        for (int i = 0; i < count; i++) {
-            String address = addresses[i];
-            if (address != null && !address.equals(PduHeaders.FROM_INSERT_ADDRESS_TOKEN_STR)) {
-                long id = getSingleThreadId(address);
-                if (id != RESULT_FOR_ID_NOT_FOUND) {
-                    result.add(id);
-                } else {
-                    Log.e(LOG_TAG, "Address ID not found for: " + address);
-                }
-            }
-        }
-        return result;
-    }
-
-    private String getCommaSeparatedId(long[] addrIds) {
-        int size = addrIds.length;
-        StringBuilder buffer = new StringBuilder();
-
-        for (int i = 0; i < size; i++) {
-            if (i != 0) {
-                buffer.append(',');
-            }
-            buffer.append(getThreadIds(String.valueOf(addrIds[i])));
-        }
-        return buffer.toString();
-    }
-
-    private long getSingleThreadId(String address) {
-        boolean isEmail = Mms.isEmailAddress(address);
-        String refinedAddress = isEmail ? address.toLowerCase() : address;
-        String selection = "address=?";
-        String[] selectionArgs;
-
-        if (isEmail) {
-            selectionArgs = new String[]{refinedAddress};
-        } else {
-            selection += " OR " + String.format("PHONE_NUMBERS_EQUAL(address, ?, %d)",
-                    (mUseStrictPhoneNumberComparation ? 1 : 0));
-            selectionArgs = new String[]{refinedAddress, refinedAddress};
-        }
-
-        Cursor cursor = null;
-
-        try {
-            SQLiteDatabase db = mOpenHelper.getReadableDatabase();
-            cursor = db.query(
-                    "canonical_addresses", ID_PROJECTION,
-                    selection, selectionArgs, null, null, null);
-
-            if (cursor.getCount() == 0) {
-                return RESULT_FOR_ID_NOT_FOUND;
-            }
-
-            if (cursor.moveToFirst()) {
-                return cursor.getLong(cursor.getColumnIndexOrThrow(BaseColumns._ID));
-            }
-        } finally {
-            if (cursor != null) {
-                cursor.close();
-            }
-        }
-
-        return RESULT_FOR_ID_NOT_FOUND;
     }
 
     private String getConversationQueryString(int searchMode,
@@ -1676,46 +1637,6 @@ public class MmsSmsProvider extends ContentProvider {
         return rawQuery;
     }
 
-    private synchronized String getThreadIds(String recipientIds) {
-        String THREAD_QUERY = "SELECT _id FROM threads " +
-                "WHERE recipient_ids = ? or recipient_ids like '" + recipientIds
-                + " %' or recipient_ids like '% " + recipientIds
-                + "' or recipient_ids like '% " + recipientIds + " %'";
-        String resultString = DEFAULT_STRING_ZERO;
-        StringBuilder buffer = new StringBuilder();
-
-        if (DEBUG) {
-            Log.v(LOG_TAG, "getThreadId THREAD_QUERY: " + THREAD_QUERY +
-                    ", recipientIds=" + recipientIds);
-        }
-        Cursor cursor = null;
-        try {
-            SQLiteDatabase db = mOpenHelper.getReadableDatabase();
-            cursor = db.rawQuery(THREAD_QUERY, new String[]{
-                    recipientIds
-            });
-
-            if (cursor == null || cursor.getCount() == 0) {
-                return resultString;
-            }
-            int i = 0;
-            while (cursor.moveToNext()) {
-                if (i != 0) {
-                    buffer.append(',');
-                }
-                buffer.append(String.valueOf(cursor.getLong(0)));
-                i++;
-            }
-            resultString = buffer.toString();
-
-        } finally {
-            if (cursor != null) {
-                cursor.close();
-            }
-        }
-
-        return resultString;
-    }
     @Override
     public Bundle call(String method, String arg, Bundle extras) {
         if (METHOD_IS_RESTORING.equals(method)) {
