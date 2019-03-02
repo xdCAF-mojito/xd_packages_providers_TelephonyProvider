@@ -27,6 +27,7 @@ import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 import android.support.test.InstrumentationRegistry;
 import android.telephony.SubscriptionManager;
+import android.test.suitebuilder.annotation.SmallTest;
 import android.text.TextUtils;
 import android.util.Log;
 
@@ -39,6 +40,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+/**
+ * To run this test, run the following from the dir: packages/providers/TelephonyProvider
+ *    atest TelephonyProviderTests:TelephonyDatabaseHelperTest
+ * Or
+ *    runtest --path tests/src/com/android/providers/telephony/TelephonyDatabaseHelperTest.java
+ */
 @RunWith(JUnit4.class)
 public final class TelephonyDatabaseHelperTest {
 
@@ -87,6 +94,32 @@ public final class TelephonyDatabaseHelperTest {
     }
 
     @Test
+    public void databaseHelperOnUpgrade_hasCountryIsoField() {
+        Log.d(TAG, "databaseHelperOnUpgrade_hasCountryIsoField");
+        SQLiteDatabase db = mInMemoryDbHelper.getWritableDatabase();
+        mHelper.onUpgrade(db, (4 << 16), TelephonyProvider.DatabaseHelper.getVersion(mContext));
+
+        // the upgraded db must have the Telephony.Carriers.CARRIER_ID field
+        Cursor cursor = db.query("simInfo", null, null, null, null, null, null);
+        String[] upgradedColumns = cursor.getColumnNames();
+        Log.d(TAG, "iso columns: " + Arrays.toString(upgradedColumns));
+        assertTrue(Arrays.asList(upgradedColumns).contains(SubscriptionManager.ISO_COUNTRY_CODE));
+    }
+
+    @Test
+    public void databaseHelperOnUpgrade_hasProfileClassField() {
+        Log.d(TAG, "databaseHelperOnUpgrade_hasProfileClassField");
+        SQLiteDatabase db = mInMemoryDbHelper.getWritableDatabase();
+        mHelper.onUpgrade(db, (4 << 16), TelephonyProvider.DatabaseHelper.getVersion(mContext));
+
+        // the upgraded db must have the PROFILE_CLASS field
+        Cursor cursor = db.query("siminfo", null, null, null, null, null, null);
+        String[] upgradedColumns = cursor.getColumnNames();
+        Log.d(TAG, "profile class columns: " + Arrays.toString(upgradedColumns));
+        assertTrue(Arrays.asList(upgradedColumns).contains(SubscriptionManager.PROFILE_CLASS));
+    }
+
+    @Test
     public void databaseHelperOnUpgrade_columnsMatchNewlyCreatedDb() {
         Log.d(TAG, "databaseHelperOnUpgrade_columnsMatchNewlyCreatedDb");
         // (5 << 16 | 6) is the first upgrade trigger in onUpgrade
@@ -120,6 +153,21 @@ public final class TelephonyDatabaseHelperTest {
 
         assertArrayEquals("Siminfo table from onUpgrade doesn't match full table",
                 fullColumns, upgradedColumns);
+    }
+
+    @Test
+    public void databaseHelperOnUpgrade_hasSubscriptionTypeField() {
+        Log.d(TAG, "databaseHelperOnUpgrade_hasSubscriptionTypeField");
+        // (5 << 16 | 6) is the first upgrade trigger in onUpgrade
+        SQLiteDatabase db = mInMemoryDbHelper.getWritableDatabase();
+        mHelper.onUpgrade(db, (4 << 16), TelephonyProvider.DatabaseHelper.getVersion(mContext));
+
+        // the upgraded db must have the SubscriptionManager.SUBSCRIPTION_TYPE field
+        Cursor cursor = db.query("siminfo", null, null, null, null, null, null);
+        String[] upgradedColumns = cursor.getColumnNames();
+        Log.d(TAG, "siminfo columns: " + Arrays.toString(upgradedColumns));
+
+        assertTrue(Arrays.asList(upgradedColumns).contains(SubscriptionManager.SUBSCRIPTION_TYPE));
     }
 
     /**
