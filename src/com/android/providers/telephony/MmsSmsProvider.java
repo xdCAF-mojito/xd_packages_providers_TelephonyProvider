@@ -119,7 +119,7 @@ public class MmsSmsProvider extends ContentProvider {
     /**
      * the name of the table that is used to store the canonical addresses for both SMS and MMS.
      */
-    private static final String TABLE_CANONICAL_ADDRESSES = "canonical_addresses";
+    static final String TABLE_CANONICAL_ADDRESSES = "canonical_addresses";
     private static final String DEFAULT_STRING_ZERO = "0";
 
     /**
