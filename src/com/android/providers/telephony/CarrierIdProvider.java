@@ -386,7 +386,11 @@ public class CarrierIdProvider extends ContentProvider {
                     cv = new ContentValues();
                     cv.put(CarrierId.CARRIER_ID, id.canonicalId);
                     cv.put(CarrierId.CARRIER_NAME, id.carrierName);
-                    cv.put(CarrierId.PARENT_CARRIER_ID, id.parentCanonicalId);
+                    // 0 is the default proto value. if parentCanonicalId is unset, apply default
+                    // unknown carrier id -1.
+                    if (id.parentCanonicalId > 0) {
+                        cv.put(CarrierId.PARENT_CARRIER_ID, id.parentCanonicalId);
+                    }
                     cvs = new ArrayList<>();
                     convertCarrierAttrToContentValues(cv, cvs, attr, 0);
                     for (ContentValues contentVal : cvs) {
@@ -604,7 +608,7 @@ public class CarrierIdProvider extends ContentProvider {
         if (!SubscriptionController.getInstance().isActiveSubId(subId)) {
             // Remove absent subId from the currentSubscriptionMap.
             final List activeSubscriptions = Arrays.asList(SubscriptionController.getInstance()
-                    .getActiveSubIdList());
+                    .getActiveSubIdList(false));
             int count = 0;
             for (int subscription : mCurrentSubscriptionMap.keySet()) {
                 if (!activeSubscriptions.contains(subscription)) {
