@@ -15,6 +15,7 @@
  */
 package com.android.providers.telephony;
 
+import static android.provider.Telephony.RcsColumns.RcsThreadColumns.RCS_THREAD_URI_PART;
 import static android.provider.Telephony.RcsColumns.TRANSACTION_FAILED;
 
 import static com.android.providers.telephony.RcsProviderUtil.buildUriWithRowIdAppended;
@@ -119,6 +120,7 @@ public class RcsProvider extends ContentProvider {
     private static final int OUTGOING_MESSAGE_ON_GROUP_THREAD_WITH_ID = 41;
     private static final int FILE_TRANSFER_WITH_ID = 42;
     private static final int EVENT = 43;
+    private static final int CANONICAL_ADDRESS = 44;
 
     SQLiteOpenHelper mDbOpenHelper;
 
@@ -130,10 +132,12 @@ public class RcsProvider extends ContentProvider {
     RcsProviderMessageHelper mMessageHelper;
     @VisibleForTesting
     RcsProviderEventHelper mEventHelper;
+    @VisibleForTesting
+    RcsProviderCanonicalAddressHelper mCanonicalAddressHelper;
 
     static {
         // example URI: content://rcs/thread
-        URL_MATCHER.addURI(AUTHORITY, "thread", UNIFIED_RCS_THREAD);
+        URL_MATCHER.addURI(AUTHORITY, RCS_THREAD_URI_PART, UNIFIED_RCS_THREAD);
 
         // example URI: content://rcs/thread/4, where 4 is the thread id.
         URL_MATCHER.addURI(AUTHORITY, "thread/#", UNIFIED_RCS_THREAD_WITH_ID);
@@ -294,17 +298,19 @@ public class RcsProvider extends ContentProvider {
 
         // example URI: content://rcs/event
         URL_MATCHER.addURI(AUTHORITY, "event", EVENT);
+
+        URL_MATCHER.addURI(AUTHORITY, "canonical-address", CANONICAL_ADDRESS);
     }
 
     @Override
     public boolean onCreate() {
-        setAppOps(AppOpsManager.OP_READ_SMS, AppOpsManager.OP_WRITE_SMS);
         // Use the credential encrypted mmssms.db for RCS messages.
         mDbOpenHelper = MmsSmsDatabaseHelper.getInstanceForCe(getContext());
         mParticipantHelper = new RcsProviderParticipantHelper(mDbOpenHelper);
         mThreadHelper = new RcsProviderThreadHelper(mDbOpenHelper);
         mMessageHelper = new RcsProviderMessageHelper(mDbOpenHelper);
         mEventHelper = new RcsProviderEventHelper(mDbOpenHelper);
+        mCanonicalAddressHelper = new RcsProviderCanonicalAddressHelper(mDbOpenHelper);
         return true;
     }
 
@@ -447,6 +453,9 @@ public class RcsProvider extends ContentProvider {
                 return mMessageHelper.queryFileTransfer(uri);
             case EVENT:
                 return mEventHelper.queryEvents(queryArgs);
+            case CANONICAL_ADDRESS:
+                String canonicalAddress = uri.getQueryParameter("address");
+                return mCanonicalAddressHelper.getOrCreateCanonicalAddress(canonicalAddress);
             default:
                 Log.e(TAG, "Invalid query: " + uri);
         }
@@ -495,8 +504,10 @@ public class RcsProvider extends ContentProvider {
                                 + uri);
                 break;
             case P2P_THREAD_PARTICIPANT_WITH_ID:
-                return returnUriAsIsIfSuccessful(uri,
-                        mParticipantHelper.insertParticipantIntoP2pThread(uri));
+                Log.e(TAG,
+                        "Inserting participant into a thread via URI is not supported, uri: "
+                                + uri);
+                break;
             case GROUP_THREAD:
                 return buildUriWithRowIdAppended(GROUP_THREAD_URI_PREFIX,
                         mThreadHelper.insertGroupThread(values));
