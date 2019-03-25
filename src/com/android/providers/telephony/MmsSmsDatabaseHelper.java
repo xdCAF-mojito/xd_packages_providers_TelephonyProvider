@@ -16,6 +16,8 @@
 
 package com.android.providers.telephony;
 
+import static android.provider.Telephony.RcsColumns.IS_RCS_TABLE_SCHEMA_CODE_COMPLETE;
+
 import android.content.BroadcastReceiver;
 import android.content.ContentValues;
 import android.content.Context;
@@ -215,11 +217,6 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
     // cache for INITIAL_CREATE_DONE shared pref so access to it can be avoided when possible
     private static AtomicBoolean sInitialCreateDone = new AtomicBoolean(false);
 
-    // TODO(sahinc): Turn this to true once the schema finalizes, so that people can update their
-    // messaging databases. NOTE: move the switch/case update to the latest version of the database
-    // before turning this flag to true.
-    private static final boolean IS_RCS_TABLE_SCHEMA_CODE_COMPLETE = false;
-
     /**
      * The primary purpose of this DatabaseErrorHandler is to broadcast an intent on corruption and
      * print a Slog.wtf so database corruption can be caught earlier.
@@ -243,7 +240,8 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
         }
     }
 
-    private MmsSmsDatabaseHelper(Context context, MmsSmsDatabaseErrorHandler dbErrorHandler) {
+    @VisibleForTesting
+    MmsSmsDatabaseHelper(Context context, MmsSmsDatabaseErrorHandler dbErrorHandler) {
         super(context, DATABASE_NAME, null, DATABASE_VERSION, dbErrorHandler);
         mContext = context;
         // Memory optimization - close idle connections after 30s of inactivity
@@ -531,7 +529,7 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
         localLog("onCreate: Creating all SMS-MMS tables.");
         // if FBE is not supported, or if this onCreate is for CE partition database
         if (!StorageManager.isFileEncryptedNativeOrEmulated()
-                || mContext.isCredentialProtectedStorage()) {
+                || (mContext != null && mContext.isCredentialProtectedStorage())) {
             localLog("onCreate: broadcasting ACTION_SMS_MMS_DB_CREATED");
             // Broadcast ACTION_SMS_MMS_DB_CREATED
             Intent intent = new Intent(Sms.Intents.ACTION_SMS_MMS_DB_CREATED);
@@ -557,6 +555,8 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
         if (IS_RCS_TABLE_SCHEMA_CODE_COMPLETE) {
             RcsProviderThreadHelper.createThreadTables(db);
             RcsProviderParticipantHelper.createParticipantTables(db);
+            RcsProviderMessageHelper.createRcsMessageTables(db);
+            RcsProviderEventHelper.createRcsEventTables(db);
         }
 
         createCommonTriggers(db);
@@ -765,7 +765,8 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
         }
     }
 
-    private void createMmsTables(SQLiteDatabase db) {
+    @VisibleForTesting
+    void createMmsTables(SQLiteDatabase db) {
         // N.B.: Whenever the columns here are changed, the columns in
         // {@ref MmsSmsProvider} must be changed to match.
         db.execSQL("CREATE TABLE " + MmsProvider.TABLE_PDU + " (" +
@@ -1068,7 +1069,8 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
             "message_body TEXT," + // message body
             "display_originating_addr TEXT);";
     // email address if from an email gateway, otherwise same as address
-    private void createSmsTables(SQLiteDatabase db) {
+    @VisibleForTesting
+    void createSmsTables(SQLiteDatabase db) {
         // N.B.: Whenever the columns here are changed, the columns in
         // {@ref MmsSmsProvider} must be changed to match.
         db.execSQL(CREATE_SMS_TABLE_STRING);
@@ -1117,7 +1119,8 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
         }
     }
 
-    private void createCommonTables(SQLiteDatabase db) {
+    @VisibleForTesting
+    void createCommonTables(SQLiteDatabase db) {
         // TODO Ensure that each entry is removed when the last use of
         // any address equivalent to its address is removed.
 
@@ -1695,6 +1698,8 @@ public class MmsSmsDatabaseHelper extends SQLiteOpenHelper {
             }
             RcsProviderThreadHelper.createThreadTables(db);
             RcsProviderParticipantHelper.createParticipantTables(db);
+            RcsProviderMessageHelper.createRcsMessageTables(db);
+            RcsProviderEventHelper.createRcsEventTables(db);
             return;
         }
 
