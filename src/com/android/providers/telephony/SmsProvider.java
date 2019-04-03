@@ -391,7 +391,7 @@ public class SmsProvider extends ContentProvider {
         ArrayList<SmsMessage> messages;
         int messageIndex = -1;
         try {
-            Integer.parseInt(messageIndexString);
+            messageIndex = Integer.parseInt(messageIndexString);
         } catch (NumberFormatException exception) {
             throw new IllegalArgumentException("Bad SMS ICC ID: " + messageIndexString);
         }
