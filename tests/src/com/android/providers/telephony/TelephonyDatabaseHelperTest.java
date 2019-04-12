@@ -25,11 +25,11 @@ import android.content.Context;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
-import android.support.test.InstrumentationRegistry;
 import android.telephony.SubscriptionManager;
-import android.test.suitebuilder.annotation.SmallTest;
 import android.text.TextUtils;
 import android.util.Log;
+
+import androidx.test.InstrumentationRegistry;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -117,6 +117,20 @@ public final class TelephonyDatabaseHelperTest {
         String[] upgradedColumns = cursor.getColumnNames();
         Log.d(TAG, "profile class columns: " + Arrays.toString(upgradedColumns));
         assertTrue(Arrays.asList(upgradedColumns).contains(SubscriptionManager.PROFILE_CLASS));
+    }
+
+    @Test
+    public void databaseHelperOnUpgrade_hasSkip464XlatField() {
+        Log.d(TAG, "databaseHelperOnUpgrade_hasSkip464XlatField");
+        // (5 << 16 | 6) is the first upgrade trigger in onUpgrade
+        SQLiteDatabase db = mInMemoryDbHelper.getWritableDatabase();
+        mHelper.onUpgrade(db, (4 << 16), TelephonyProvider.DatabaseHelper.getVersion(mContext));
+
+        // the upgraded db must have the Telephony.Carriers.CARRIER_ID field
+        Cursor cursor = db.query("carriers", null, null, null, null, null, null);
+        String[] upgradedColumns = cursor.getColumnNames();
+        Log.d(TAG, "carriers columns: " + Arrays.toString(upgradedColumns));
+        assertTrue(Arrays.asList(upgradedColumns).contains(Carriers.SKIP_464XLAT));
     }
 
     @Test
