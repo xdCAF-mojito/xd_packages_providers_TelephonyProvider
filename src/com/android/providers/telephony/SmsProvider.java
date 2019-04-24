@@ -21,9 +21,6 @@ import static android.telephony.SmsMessage.ENCODING_7BIT;
 import static android.telephony.SmsMessage.ENCODING_UNKNOWN;
 import static android.telephony.SmsMessage.MAX_USER_DATA_BYTES;
 import static android.telephony.SmsMessage.MAX_USER_DATA_SEPTETS;
-import static android.app.AppOpsManager.MODE_ALLOWED;
-import static android.app.AppOpsManager.MODE_IGNORED;
-
 import android.annotation.NonNull;
 import android.app.AppOpsManager;
 import android.content.ContentProvider;
@@ -41,7 +38,6 @@ import android.net.Uri;
 import android.os.Binder;
 import android.os.UserHandle;
 import android.provider.Contacts;
-import android.provider.Settings;
 import android.provider.Telephony;
 import android.provider.Telephony.MmsSms;
 import android.provider.Telephony.Sms;
@@ -1255,19 +1251,6 @@ public class SmsProvider extends ContentProvider {
                 UserHandle.USER_ALL);
         if (notifyIfNotDefault) {
             ProviderUtil.notifyIfNotDefaultSmsApp(uri, callingPackage, context);
-        }
-    }
-
-    /** @hide */
-    @Override
-    protected int interpretDefaultAppOpMode(int op) {
-        if (op == AppOpsManager.OP_WRITE_SMS) {
-            return MODE_IGNORED;
-        } else {
-            boolean accessRestrictionEnabled = Settings.Global.getInt(
-                    getContext().getContentResolver(),
-                    Settings.Global.SMS_ACCESS_RESTRICTION_ENABLED, 0) == 1;
-            return accessRestrictionEnabled ? MODE_IGNORED : MODE_ALLOWED;
         }
     }
 
