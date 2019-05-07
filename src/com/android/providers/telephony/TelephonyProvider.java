@@ -145,7 +145,7 @@ public class TelephonyProvider extends ContentProvider
     private static final boolean DBG = true;
     private static final boolean VDBG = false; // STOPSHIP if true
 
-    private static final int DATABASE_VERSION = 36 << 16;
+    private static final int DATABASE_VERSION = 38 << 16;
     private static final int URL_UNKNOWN = 0;
     private static final int URL_TELEPHONY = 1;
     private static final int URL_CURRENT = 2;
@@ -362,6 +362,8 @@ public class TelephonyProvider extends ContentProvider
                 + SubscriptionManager.MNC + " INTEGER DEFAULT 0,"
                 + SubscriptionManager.MCC_STRING + " TEXT,"
                 + SubscriptionManager.MNC_STRING + " TEXT,"
+                + SubscriptionManager.EHPLMNS + " TEXT,"
+                + SubscriptionManager.HPLMNS + " TEXT,"
                 + SubscriptionManager.SIM_PROVISIONING_STATUS
                 + " INTEGER DEFAULT " + SubscriptionManager.SIM_PROVISIONED + ","
                 + SubscriptionManager.IS_EMBEDDED + " INTEGER DEFAULT 0,"
@@ -393,8 +395,9 @@ public class TelephonyProvider extends ContentProvider
                 + SubscriptionManager.CARRIER_ID + " INTEGER DEFAULT -1,"
                 + SubscriptionManager.PROFILE_CLASS + " INTEGER DEFAULT "
                 + SubscriptionManager.PROFILE_CLASS_DEFAULT + ","
-                + SubscriptionManager.SUBSCRIPTION_TYPE
-                + " INTEGER DEFAULT " + SubscriptionManager.SUBSCRIPTION_TYPE_LOCAL_SIM
+                + SubscriptionManager.SUBSCRIPTION_TYPE + " INTEGER DEFAULT "
+                + SubscriptionManager.SUBSCRIPTION_TYPE_LOCAL_SIM + ","
+                + SubscriptionManager.WHITE_LISTED_APN_DATA + " INTEGER DEFAULT 0"
                 + ");";
     }
 
@@ -1268,6 +1271,37 @@ public class TelephonyProvider extends ContentProvider
                 oldVersion = 36 << 16 | 6;
             }
 
+            if (oldVersion < (37 << 16 | 6)) {
+                // Add new columns SubscriptionManager.EHPLMNS and SubscriptionManager.HPLMNS into
+                // the database.
+                try {
+                    db.execSQL("ALTER TABLE " + SIMINFO_TABLE +
+                            " ADD COLUMN " + SubscriptionManager.EHPLMNS + " TEXT;");
+                    db.execSQL("ALTER TABLE " + SIMINFO_TABLE +
+                            " ADD COLUMN " + SubscriptionManager.HPLMNS + " TEXT;");
+                } catch (SQLiteException e) {
+                    if (DBG) {
+                        log("onUpgrade skipping " + SIMINFO_TABLE + " upgrade for ehplmns. " +
+                                "The table will get created in onOpen.");
+                    }
+                }
+                oldVersion = 37 << 16 | 6;
+            }
+
+            if (oldVersion < (38 << 16 | 6)) {
+                try {
+                    // Try to update the siminfo table. It might not be there.
+                    db.execSQL("ALTER TABLE " + SIMINFO_TABLE + " ADD COLUMN "
+                            + SubscriptionManager.WHITE_LISTED_APN_DATA + " INTEGER DEFAULT 0;");
+                } catch (SQLiteException e) {
+                    if (DBG) {
+                        log("onUpgrade skipping " + SIMINFO_TABLE + " upgrade. " +
+                                "The table will get created in onOpen.");
+                    }
+                }
+                oldVersion = 38 << 16 | 6;
+            }
+
             if (DBG) {
                 log("dbh.onUpgrade:- db=" + db + " oldV=" + oldVersion + " newV=" + newVersion);
             }
@@ -1938,6 +1972,17 @@ public class TelephonyProvider extends ContentProvider
                 // Update the network type bitmask to keep them sync.
                 networkTypeBitmask = ServiceState.convertBearerBitmaskToNetworkTypeBitmask(
                         bearerBitmask);
+                // Legacy bearer is deprecated, in order to be compatible with bearer_bitmask till
+                // both are removed (bearer_bitmask is marked as deprecated now), just appends
+                // bearer into bearer_bitmask only.
+                // Use the constant string BEARER instead of the "bearer" by hard code.
+                final String apnBearer = parser.getAttributeValue(null, BEARER);
+                if (apnBearer != null) {
+                    final int legacyBearerBitmask =
+                            ServiceState.getBitmaskForTech(Integer.parseInt(apnBearer));
+                    networkTypeBitmask |= ServiceState
+                            .convertBearerBitmaskToNetworkTypeBitmask(legacyBearerBitmask);
+                }
                 map.put(NETWORK_TYPE_BITMASK, networkTypeBitmask);
             }
             map.put(BEARER_BITMASK, bearerBitmask);
