@@ -5,5 +5,8 @@ android_app {
     platform_apis: true,
     certificate: "platform",
     libs: ["telephony-common"],
-    static_libs: ["android-common"],
+    static_libs: [
+    "android-common",
+    "android-support-v4"
+    ],
 }
