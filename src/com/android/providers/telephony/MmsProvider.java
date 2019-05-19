@@ -45,6 +45,7 @@ import android.provider.Telephony.Mms.Part;
 import android.provider.Telephony.Mms.Rate;
 import android.provider.Telephony.MmsSms;
 import android.provider.Telephony.Threads;
+import android.support.v4.content.FileProvider;
 import android.text.TextUtils;
 import android.util.Log;
 
@@ -383,13 +384,15 @@ public class MmsProvider extends ContentProvider {
         }
     }
 
-    private byte[] getPduDataFromFile(String pduPath) {
+    private byte[] getPduDataFromFile(String pduPath, String authority) {
         FileInputStream fileInputStream = null;
         byte[] data = null;
         try {
-            File pduFile = new File(pduPath);
-            data = new byte[(int)pduFile.length()];
-            fileInputStream = new FileInputStream(pduFile);
+            Uri fileUri = FileProvider.getUriForFile(getContext(), authority, new File(pduPath));
+            ParcelFileDescriptor parcelFileDescriptor =
+                    getContext().getContentResolver().openFileDescriptor(fileUri, "r");
+            fileInputStream = new FileInputStream(parcelFileDescriptor.getFileDescriptor());
+            data = new byte[fileInputStream.available()];
             fileInputStream.read(data);
         } catch (Exception e) {
             Log.e(TAG, "read file exception :", e);
@@ -405,14 +408,14 @@ public class MmsProvider extends ContentProvider {
         return data;
     }
 
-    private Uri restorePduFile(Uri uri, String pduPath) {
+    private Uri restorePduFile(Uri uri, String pduPath, String authority) {
         Uri msgUri = null;
-        if (uri == null || TextUtils.isEmpty(pduPath)) {
+        if (uri == null || TextUtils.isEmpty(pduPath) || TextUtils.isEmpty(authority)) {
             return null;
         }
 
         try {
-            byte[] pduData = getPduDataFromFile(pduPath);
+            byte[] pduData = getPduDataFromFile(pduPath, authority);
             PduPersister pduPersister = PduPersister.getPduPersister(getContext());
             if (pduData != null && pduData.length > 0) {
                 if (Mms.Sent.CONTENT_URI.equals(uri)
@@ -440,9 +443,9 @@ public class MmsProvider extends ContentProvider {
         return null;
     }
 
-    private int restoreMms(Uri uri, ContentValues values, String dir) {
+    private int restoreMms(Uri uri, ContentValues values, String dir, String authority) {
         int count = 0;
-        Uri msgUri = restorePduFile(uri, getPduPath(dir, values));
+        Uri msgUri = restorePduFile(uri, getPduPath(dir, values), authority);
         if (msgUri != null) {
             String selection = Mms._ID + "=" + msgUri.getLastPathSegment();
             values.remove(COLUMN_PDU_PATH);
@@ -457,6 +460,7 @@ public class MmsProvider extends ContentProvider {
     @Override
     public int bulkInsert(Uri uri, ContentValues[] values) {
         String dir = uri.getQueryParameter("restore_dir");
+        String authority = uri.getQueryParameter("authorities");
         if (TextUtils.isEmpty(dir)) {
             return super.bulkInsert(uri, values);
         }
@@ -480,7 +484,7 @@ public class MmsProvider extends ContentProvider {
         db.beginTransaction();
         try {
             for (ContentValues value : values) {
-                count += restoreMms(insertUri, value, dir);
+                count += restoreMms(insertUri, value, dir, authority);
             }
 
             Log.d(TAG, "bulkInsert  request count: " + values.length
