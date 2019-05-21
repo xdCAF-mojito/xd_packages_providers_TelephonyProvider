@@ -106,6 +106,7 @@ import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.telephony.data.ApnSetting;
 import android.text.TextUtils;
+import android.util.EventLog;
 import android.util.Log;
 import android.util.Pair;
 import android.util.Xml;
@@ -136,6 +137,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.zip.CRC32;
 
 public class TelephonyProvider extends ContentProvider
@@ -145,7 +147,7 @@ public class TelephonyProvider extends ContentProvider
     private static final boolean DBG = true;
     private static final boolean VDBG = false; // STOPSHIP if true
 
-    private static final int DATABASE_VERSION = 36 << 16;
+    private static final int DATABASE_VERSION = 38 << 16;
     private static final int URL_UNKNOWN = 0;
     private static final int URL_TELEPHONY = 1;
     private static final int URL_CURRENT = 2;
@@ -362,6 +364,8 @@ public class TelephonyProvider extends ContentProvider
                 + SubscriptionManager.MNC + " INTEGER DEFAULT 0,"
                 + SubscriptionManager.MCC_STRING + " TEXT,"
                 + SubscriptionManager.MNC_STRING + " TEXT,"
+                + SubscriptionManager.EHPLMNS + " TEXT,"
+                + SubscriptionManager.HPLMNS + " TEXT,"
                 + SubscriptionManager.SIM_PROVISIONING_STATUS
                 + " INTEGER DEFAULT " + SubscriptionManager.SIM_PROVISIONED + ","
                 + SubscriptionManager.IS_EMBEDDED + " INTEGER DEFAULT 0,"
@@ -393,8 +397,9 @@ public class TelephonyProvider extends ContentProvider
                 + SubscriptionManager.CARRIER_ID + " INTEGER DEFAULT -1,"
                 + SubscriptionManager.PROFILE_CLASS + " INTEGER DEFAULT "
                 + SubscriptionManager.PROFILE_CLASS_DEFAULT + ","
-                + SubscriptionManager.SUBSCRIPTION_TYPE
-                + " INTEGER DEFAULT " + SubscriptionManager.SUBSCRIPTION_TYPE_LOCAL_SIM
+                + SubscriptionManager.SUBSCRIPTION_TYPE + " INTEGER DEFAULT "
+                + SubscriptionManager.SUBSCRIPTION_TYPE_LOCAL_SIM + ","
+                + SubscriptionManager.WHITE_LISTED_APN_DATA + " INTEGER DEFAULT 0"
                 + ");";
     }
 
@@ -1268,6 +1273,37 @@ public class TelephonyProvider extends ContentProvider
                 oldVersion = 36 << 16 | 6;
             }
 
+            if (oldVersion < (37 << 16 | 6)) {
+                // Add new columns SubscriptionManager.EHPLMNS and SubscriptionManager.HPLMNS into
+                // the database.
+                try {
+                    db.execSQL("ALTER TABLE " + SIMINFO_TABLE +
+                            " ADD COLUMN " + SubscriptionManager.EHPLMNS + " TEXT;");
+                    db.execSQL("ALTER TABLE " + SIMINFO_TABLE +
+                            " ADD COLUMN " + SubscriptionManager.HPLMNS + " TEXT;");
+                } catch (SQLiteException e) {
+                    if (DBG) {
+                        log("onUpgrade skipping " + SIMINFO_TABLE + " upgrade for ehplmns. " +
+                                "The table will get created in onOpen.");
+                    }
+                }
+                oldVersion = 37 << 16 | 6;
+            }
+
+            if (oldVersion < (38 << 16 | 6)) {
+                try {
+                    // Try to update the siminfo table. It might not be there.
+                    db.execSQL("ALTER TABLE " + SIMINFO_TABLE + " ADD COLUMN "
+                            + SubscriptionManager.WHITE_LISTED_APN_DATA + " INTEGER DEFAULT 0;");
+                } catch (SQLiteException e) {
+                    if (DBG) {
+                        log("onUpgrade skipping " + SIMINFO_TABLE + " upgrade. " +
+                                "The table will get created in onOpen.");
+                    }
+                }
+                oldVersion = 38 << 16 | 6;
+            }
+
             if (DBG) {
                 log("dbh.onUpgrade:- db=" + db + " oldV=" + oldVersion + " newV=" + newVersion);
             }
@@ -1938,6 +1974,17 @@ public class TelephonyProvider extends ContentProvider
                 // Update the network type bitmask to keep them sync.
                 networkTypeBitmask = ServiceState.convertBearerBitmaskToNetworkTypeBitmask(
                         bearerBitmask);
+                // Legacy bearer is deprecated, in order to be compatible with bearer_bitmask till
+                // both are removed (bearer_bitmask is marked as deprecated now), just appends
+                // bearer into bearer_bitmask only.
+                // Use the constant string BEARER instead of the "bearer" by hard code.
+                final String apnBearer = parser.getAttributeValue(null, BEARER);
+                if (apnBearer != null) {
+                    final int legacyBearerBitmask =
+                            ServiceState.getBitmaskForTech(Integer.parseInt(apnBearer));
+                    networkTypeBitmask |= ServiceState
+                            .convertBearerBitmaskToNetworkTypeBitmask(legacyBearerBitmask);
+                }
                 map.put(NETWORK_TYPE_BITMASK, networkTypeBitmask);
             }
             map.put(BEARER_BITMASK, bearerBitmask);
@@ -2687,7 +2734,7 @@ public class TelephonyProvider extends ContentProvider
         List<String> constraints = new ArrayList<String>();
 
         int match = s_urlMatcher.match(url);
-        checkQueryPermission(match, projectionIn);
+        checkQueryPermission(match, projectionIn, selection);
         switch (match) {
             case URL_TELEPHONY_USING_SUBID: {
                 subIdString = url.getLastPathSegment();
@@ -2896,8 +2943,27 @@ public class TelephonyProvider extends ContentProvider
         return ret;
     }
 
-    private void checkQueryPermission(int match, String[] projectionIn) {
+    private void checkQueryPermission(int match, String[] projectionIn, String selection) {
         if (match != URL_SIMINFO) {
+            // Determine if we need to do a check for fields in the selection
+            boolean selectionContainsSensitiveFields;
+            try {
+                selectionContainsSensitiveFields = containsSensitiveFields(selection);
+            } catch (IllegalArgumentException e) {
+                // Malformed sql, check permission anyway and return.
+                checkPermission();
+                return;
+            }
+
+            if (selectionContainsSensitiveFields) {
+                try {
+                    checkPermission();
+                } catch (SecurityException e) {
+                    EventLog.writeEvent(0x534e4554, "124107808", Binder.getCallingUid());
+                    throw e;
+                }
+            }
+
             if (projectionIn != null) {
                 for (String column : projectionIn) {
                     if (TYPE.equals(column) ||
@@ -2907,7 +2973,6 @@ public class TelephonyProvider extends ContentProvider
                             MVNO_TYPE.equals(column) ||
                             MVNO_MATCH_DATA.equals(column) ||
                             APN.equals(column)) {
-                        // noop
                     } else {
                         checkPermission();
                         break;
@@ -2918,6 +2983,21 @@ public class TelephonyProvider extends ContentProvider
                 checkPermission();
             }
         }
+    }
+
+    private boolean containsSensitiveFields(String sqlStatement) {
+        try {
+            SqlTokenFinder.findTokens(sqlStatement, s -> {
+                switch (s) {
+                    case USER:
+                    case PASSWORD:
+                        throw new SecurityException();
+                }
+            });
+        } catch (SecurityException e) {
+            return true;
+        }
+        return false;
     }
 
     /**
