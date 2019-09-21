@@ -91,6 +91,7 @@ import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
+import android.util.EventLog;
 import android.util.Log;
 import android.util.Pair;
 import android.util.Xml;
@@ -111,6 +112,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 public class TelephonyProvider extends ContentProvider
 {
@@ -201,9 +203,10 @@ public class TelephonyProvider extends ContentProvider
     private IApnSourceService mIApnSourceService;
 
     static {
-        // Columns not included in UNIQUE constraint: name, current, edited, user, server, password,
+        // Columns not included in UNIQUE constraint: current, edited, user, server, password,
         // authtype, type, protocol, roaming_protocol, sub_id, modem_cognitive, max_conns,
         // wait_time, max_conns_time, mtu, bearer_bitmask, user_visible
+        CARRIERS_UNIQUE_FIELDS.add(NAME);
         CARRIERS_UNIQUE_FIELDS.add(NUMERIC);
         CARRIERS_UNIQUE_FIELDS.add(MCC);
         CARRIERS_UNIQUE_FIELDS.add(MNC);
@@ -266,7 +269,7 @@ public class TelephonyProvider extends ContentProvider
                 READ_ONLY + " BOOLEAN DEFAULT 0," +
                 // Uniqueness collisions are used to trigger merge code so if a field is listed
                 // here it means we will accept both (user edited + new apn_conf definition)
-                // Columns not included in UNIQUE constraint: name, current, edited,
+                // Columns not included in UNIQUE constraint: current, edited,
                 // user, server, password, authtype, type, sub_id, modem_cognitive, max_conns,
                 // wait_time, max_conns_time, mtu, bearer_bitmask, user_visible.
                 "UNIQUE (" + TextUtils.join(", ", CARRIERS_UNIQUE_FIELDS) + "));";
@@ -2069,6 +2072,23 @@ public class TelephonyProvider extends ContentProvider
         }
 
         if (match != URL_SIMINFO) {
+            // Determine if we need to do a check for fields in the selection
+            boolean selectionContainsSensitiveFields;
+            try {
+                selectionContainsSensitiveFields = containsSensitiveFields(selection);
+            } catch (Exception e) {
+                // Malformed sql, check permission anyway.
+                selectionContainsSensitiveFields = true;
+            }
+
+            if (selectionContainsSensitiveFields) {
+                try {
+                    checkPermission();
+                } catch (SecurityException e) {
+                    EventLog.writeEvent(0x534e4554, "124107808", Binder.getCallingUid());
+                    throw e;
+                }
+            }
             if (projectionIn != null) {
                 for (String column : projectionIn) {
                     if (TYPE.equals(column) ||
@@ -2111,6 +2131,21 @@ public class TelephonyProvider extends ContentProvider
         if (ret != null)
             ret.setNotificationUri(getContext().getContentResolver(), url);
         return ret;
+    }
+
+    private boolean containsSensitiveFields(String sqlStatement) {
+        try {
+            SqlTokenFinder.findTokens(sqlStatement, s -> {
+                switch (s) {
+                    case USER:
+                    case PASSWORD:
+                        throw new SecurityException();
+                }
+            });
+        } catch (SecurityException e) {
+            return true;
+        }
+        return false;
     }
 
     @Override
