@@ -2079,10 +2079,9 @@ public class TelephonyProvider extends ContentProvider
         try {
             selectionOrSortContainsSensitiveFields = containsSensitiveFields(selection);
             selectionOrSortContainsSensitiveFields |= containsSensitiveFields(sort);
-        } catch (IllegalArgumentException e) {
-            // Malformed sql, check permission anyway and return.
-            checkPermission();
-            return;
+        } catch (Exception e) {
+            // Malformed sql, check permission anyway.
+            selectionOrSortContainsSensitiveFields = true;
         }
 
         if (selectionOrSortContainsSensitiveFields) {
@@ -2094,7 +2093,7 @@ public class TelephonyProvider extends ContentProvider
             }
         }
 
-        if (match != URL_SIMINFO && match != URL_SIMINFO_USING_SUBID) {
+        if (match != URL_SIMINFO) {
             if (projectionIn != null) {
                 for (String column : projectionIn) {
                     if (TYPE.equals(column) ||
