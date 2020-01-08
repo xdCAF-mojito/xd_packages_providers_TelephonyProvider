@@ -138,7 +138,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Consumer;
 import java.util.zip.CRC32;
 
 public class TelephonyProvider extends ContentProvider
@@ -148,7 +147,7 @@ public class TelephonyProvider extends ContentProvider
     private static final boolean DBG = true;
     private static final boolean VDBG = false; // STOPSHIP if true
 
-    private static final int DATABASE_VERSION = 41 << 16;
+    private static final int DATABASE_VERSION = 42 << 16;
     private static final int URL_UNKNOWN = 0;
     private static final int URL_TELEPHONY = 1;
     private static final int URL_CURRENT = 2;
@@ -207,6 +206,10 @@ public class TelephonyProvider extends ContentProvider
 
     private static final String DEFAULT_PROTOCOL = "IP";
     private static final String DEFAULT_ROAMING_PROTOCOL = "IP";
+
+    // Used to check if certain queries contain subqueries that may attempt to access sensitive
+    // fields in the carriers db.
+    private static final String SQL_SELECT_TOKEN = "select";
 
     private static final UriMatcher s_urlMatcher = new UriMatcher(UriMatcher.NO_MATCH);
 
@@ -372,6 +375,7 @@ public class TelephonyProvider extends ContentProvider
                 + SubscriptionManager.IS_EMBEDDED + " INTEGER DEFAULT 0,"
                 + SubscriptionManager.CARD_ID + " TEXT NOT NULL,"
                 + SubscriptionManager.ACCESS_RULES + " BLOB,"
+                + SubscriptionManager.ACCESS_RULES_FROM_CARRIER_CONFIGS + " BLOB,"
                 + SubscriptionManager.IS_REMOVABLE + " INTEGER DEFAULT 0,"
                 + SubscriptionManager.CB_EXTREME_THREAT_ALERT + " INTEGER DEFAULT 1,"
                 + SubscriptionManager.CB_SEVERE_THREAT_ALERT + " INTEGER DEFAULT 1,"
@@ -1348,6 +1352,19 @@ public class TelephonyProvider extends ContentProvider
                     }
                 }
                 oldVersion = 41 << 16 | 6;
+            }
+
+            if (oldVersion < (42 << 16 | 6)) {
+                try {
+                    // Try to update the siminfo table. It might not be there.
+                    db.execSQL("ALTER TABLE " + SIMINFO_TABLE + " ADD COLUMN " +
+                        SubscriptionManager.ACCESS_RULES_FROM_CARRIER_CONFIGS + " BLOB;");
+                } catch (SQLiteException e) {
+                    if (DBG) {
+                        log("onUpgrade skipping " + SIMINFO_TABLE + " upgrade. " +
+                                "The table will get created in onOpen.");
+                    }
+                }
             }
 
 
@@ -2830,7 +2847,7 @@ public class TelephonyProvider extends ContentProvider
         List<String> constraints = new ArrayList<String>();
 
         int match = s_urlMatcher.match(url);
-        checkQueryPermission(match, projectionIn, selection);
+        checkQueryPermission(match, projectionIn, selection, sort);
         switch (match) {
             case URL_TELEPHONY_USING_SUBID: {
                 subIdString = url.getLastPathSegment();
@@ -3039,27 +3056,29 @@ public class TelephonyProvider extends ContentProvider
         return ret;
     }
 
-    private void checkQueryPermission(int match, String[] projectionIn, String selection) {
-        if (match != URL_SIMINFO && match != URL_SIMINFO_USING_SUBID) {
-            // Determine if we need to do a check for fields in the selection
-            boolean selectionContainsSensitiveFields;
+    private void checkQueryPermission(int match, String[] projectionIn, String selection,
+            String sort) {
+        // Determine if we need to do a check for fields in the selection
+        boolean selectionOrSortContainsSensitiveFields;
+        try {
+            selectionOrSortContainsSensitiveFields = containsSensitiveFields(selection);
+            selectionOrSortContainsSensitiveFields |= containsSensitiveFields(sort);
+        } catch (IllegalArgumentException e) {
+            // Malformed sql, check permission anyway and return.
+            checkPermission();
+            return;
+        }
+
+        if (selectionOrSortContainsSensitiveFields) {
             try {
-                selectionContainsSensitiveFields = containsSensitiveFields(selection);
-            } catch (IllegalArgumentException e) {
-                // Malformed sql, check permission anyway and return.
                 checkPermission();
-                return;
+            } catch (SecurityException e) {
+                EventLog.writeEvent(0x534e4554, "124107808", Binder.getCallingUid());
+                throw e;
             }
+        }
 
-            if (selectionContainsSensitiveFields) {
-                try {
-                    checkPermission();
-                } catch (SecurityException e) {
-                    EventLog.writeEvent(0x534e4554, "124107808", Binder.getCallingUid());
-                    throw e;
-                }
-            }
-
+        if (match != URL_SIMINFO && match != URL_SIMINFO_USING_SUBID) {
             if (projectionIn != null) {
                 for (String column : projectionIn) {
                     if (TYPE.equals(column) ||
@@ -3087,9 +3106,10 @@ public class TelephonyProvider extends ContentProvider
     private boolean containsSensitiveFields(String sqlStatement) {
         try {
             SqlTokenFinder.findTokens(sqlStatement, s -> {
-                switch (s) {
+                switch (s.toLowerCase()) {
                     case USER:
                     case PASSWORD:
+                    case SQL_SELECT_TOKEN:
                         throw new SecurityException();
                 }
             });
