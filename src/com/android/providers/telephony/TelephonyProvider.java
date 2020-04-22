@@ -100,6 +100,7 @@ import android.telephony.SubscriptionInfo;
 import android.telephony.SubscriptionManager;
 import android.telephony.TelephonyManager;
 import android.text.TextUtils;
+import android.util.EventLog;
 import android.util.Log;
 import android.util.Pair;
 import android.util.Xml;
@@ -125,6 +126,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 
 public class TelephonyProvider extends ContentProvider
 {
@@ -188,6 +190,9 @@ public class TelephonyProvider extends ContentProvider
 
     private static final String DEFAULT_PROTOCOL = "IP";
     private static final String DEFAULT_ROAMING_PROTOCOL = "IP";
+    // Used to check if certain queries contain subqueries that may attempt to access sensitive
+    // fields in the carriers db.
+    private static final String SQL_SELECT_TOKEN = "select";
 
     private static final UriMatcher s_urlMatcher = new UriMatcher(UriMatcher.NO_MATCH);
 
@@ -2510,6 +2515,25 @@ public class TelephonyProvider extends ContentProvider
             qb.appendWhere(TextUtils.join(" AND ", constraints));
         }
 
+        // Determine if we need to do a check for fields in the selection
+        boolean selectionOrSortContainsSensitiveFields;
+        try {
+            selectionOrSortContainsSensitiveFields = containsSensitiveFields(selection);
+            selectionOrSortContainsSensitiveFields |= containsSensitiveFields(sort);
+        } catch (Exception e) {
+            // Malformed sql, check permission anyway.
+            selectionOrSortContainsSensitiveFields = true;
+        }
+
+        if (selectionOrSortContainsSensitiveFields) {
+            try {
+                checkPermission();
+            } catch (SecurityException e) {
+                EventLog.writeEvent(0x534e4554, "124107808", Binder.getCallingUid());
+                throw e;
+            }
+        }
+
         if (match != URL_SIMINFO) {
             if (projectionIn != null) {
                 for (String column : projectionIn) {
@@ -2553,6 +2577,22 @@ public class TelephonyProvider extends ContentProvider
         if (ret != null)
             ret.setNotificationUri(getContext().getContentResolver(), url);
         return ret;
+    }
+
+    private boolean containsSensitiveFields(String sqlStatement) {
+        try {
+            SqlTokenFinder.findTokens(sqlStatement, s -> {
+                switch (s.toLowerCase()) {
+                    case USER:
+                    case PASSWORD:
+                    case SQL_SELECT_TOKEN:
+                        throw new SecurityException();
+                }
+            });
+        } catch (SecurityException e) {
+            return true;
+        }
+        return false;
     }
 
     @Override
