@@ -631,12 +631,16 @@ public class TelephonyBackupAgent extends BackupAgent {
         ContentValues[] values = new ContentValues[bulkInsertSize];
         while (jsonReader.hasNext()) {
             ContentValues cv = readSmsValuesFromReader(jsonReader);
-            if (doesSmsExist(cv)) {
-                continue;
-            }
-            values[(msgCount++) % bulkInsertSize] = cv;
-            if (msgCount % bulkInsertSize == 0) {
-                mContentResolver.bulkInsert(Telephony.Sms.CONTENT_URI, values);
+            try {
+                if (mSmsProviderQuery.doesSmsExist(cv)) {
+                    continue;
+                }
+                values[(msgCount++) % bulkInsertSize] = cv;
+                if (msgCount % bulkInsertSize == 0) {
+                    mContentResolver.bulkInsert(Telephony.Sms.CONTENT_URI, values);
+                }
+            } catch (RuntimeException e) {
+                Log.e(TAG, "putSmsMessagesToProvider", e);
             }
         }
         if (msgCount % bulkInsertSize > 0) {
@@ -655,16 +659,20 @@ public class TelephonyBackupAgent extends BackupAgent {
             if (DEBUG) {
                 Log.d(TAG, "putMmsMessagesToProvider " + mms);
             }
-            if (doesMmsExist(mms)) {
-                if (DEBUG) {
-                    Log.e(TAG, String.format("Mms: %s already exists", mms.toString()));
-                } else {
-                    Log.w(TAG, "Mms: Found duplicate MMS");
+            try {
+                if (doesMmsExist(mms)) {
+                    if (DEBUG) {
+                        Log.e(TAG, String.format("Mms: %s already exists", mms.toString()));
+                    } else {
+                        Log.w(TAG, "Mms: Found duplicate MMS");
+                    }
+                    continue;
                 }
-                continue;
+                total++;
+                addMmsMessage(mms);
+            } catch (Exception e) {
+                Log.e(TAG, "putMmsMessagesToProvider", e);
             }
-            total++;
-            addMmsMessage(mms);
         }
         Log.d(TAG, "putMmsMessagesToProvider handled " + total + " new messages.");
     }
@@ -673,15 +681,42 @@ public class TelephonyBackupAgent extends BackupAgent {
     static final String[] PROJECTION_ID = {BaseColumns._ID};
     private static final int ID_IDX = 0;
 
-    private boolean doesSmsExist(ContentValues smsValues) {
-        final String where = String.format(Locale.US, "%s = %d and %s = %s",
-                Telephony.Sms.DATE, smsValues.getAsLong(Telephony.Sms.DATE),
-                Telephony.Sms.BODY,
-                DatabaseUtils.sqlEscapeString(smsValues.getAsString(Telephony.Sms.BODY)));
-        try (Cursor cursor = mContentResolver.query(Telephony.Sms.CONTENT_URI, PROJECTION_ID, where,
-                null, null)) {
-            return cursor != null && cursor.getCount() > 0;
+    /**
+     * Interface to allow mocking method for testing.
+     */
+    public interface SmsProviderQuery {
+        boolean doesSmsExist(ContentValues smsValues);
+    }
+
+    private SmsProviderQuery mSmsProviderQuery = new SmsProviderQuery() {
+        @Override
+        public boolean doesSmsExist(ContentValues smsValues) {
+            // The SMS body might contain '\0' characters (U+0000) such as in the case of
+            // http://b/160801497 . SQLite does not allow '\0' in String literals, but as of SQLite
+            // version 3.32.2 2020-06-04, it does allow them as selectionArgs; therefore, we're
+            // using the latter approach here.
+            final String selection = String.format(Locale.US, "%s=%d AND %s=?",
+                    Telephony.Sms.DATE, smsValues.getAsLong(Telephony.Sms.DATE),
+                    Telephony.Sms.BODY);
+            String[] selectionArgs = new String[] { smsValues.getAsString(Telephony.Sms.BODY)};
+            try (Cursor cursor = mContentResolver.query(Telephony.Sms.CONTENT_URI, PROJECTION_ID,
+                    selection, selectionArgs, null)) {
+                return cursor != null && cursor.getCount() > 0;
+            }
         }
+    };
+
+    /**
+     * Sets a temporary {@code SmsProviderQuery} for testing; note that this method
+     * is not thread safe.
+     *
+     * @return the previous {@code SmsProviderQuery}
+     */
+    @VisibleForTesting
+    public SmsProviderQuery getAndSetSmsProviderQuery(SmsProviderQuery smsProviderQuery) {
+        SmsProviderQuery result = mSmsProviderQuery;
+        mSmsProviderQuery = smsProviderQuery;
+        return result;
     }
 
     private boolean doesMmsExist(Mms mms) {
@@ -1147,9 +1182,9 @@ public class TelephonyBackupAgent extends BackupAgent {
         if (DEBUG) {
             Log.d(TAG, "Add mms:\n" + mms);
         }
-        final long dummyId = System.currentTimeMillis(); // Dummy ID of the msg.
+        final long placeholderId = System.currentTimeMillis(); // Placeholder ID of the msg.
         final Uri partUri = Telephony.Mms.CONTENT_URI.buildUpon()
-                .appendPath(String.valueOf(dummyId)).appendPath("part").build();
+                .appendPath(String.valueOf(placeholderId)).appendPath("part").build();
 
         final String srcName = String.format(Locale.US, "text.%06d.txt", 0);
         { // Insert SMIL part.
@@ -1157,7 +1192,7 @@ public class TelephonyBackupAgent extends BackupAgent {
             final String smil = TextUtils.isEmpty(mms.smil) ?
                     String.format(sSmilTextOnly, smilBody) : mms.smil;
             final ContentValues values = new ContentValues(7);
-            values.put(Telephony.Mms.Part.MSG_ID, dummyId);
+            values.put(Telephony.Mms.Part.MSG_ID, placeholderId);
             values.put(Telephony.Mms.Part.SEQ, -1);
             values.put(Telephony.Mms.Part.CONTENT_TYPE, ContentType.APP_SMIL);
             values.put(Telephony.Mms.Part.NAME, "smil.xml");
@@ -1172,7 +1207,7 @@ public class TelephonyBackupAgent extends BackupAgent {
 
         { // Insert body part.
             final ContentValues values = new ContentValues(8);
-            values.put(Telephony.Mms.Part.MSG_ID, dummyId);
+            values.put(Telephony.Mms.Part.MSG_ID, placeholderId);
             values.put(Telephony.Mms.Part.SEQ, 0);
             values.put(Telephony.Mms.Part.CONTENT_TYPE, ContentType.TEXT_PLAIN);
             values.put(Telephony.Mms.Part.NAME, srcName);
@@ -1194,7 +1229,7 @@ public class TelephonyBackupAgent extends BackupAgent {
             // Insert the attachment parts.
             for (ContentValues mmsAttachment : mms.attachments) {
                 final ContentValues values = new ContentValues(6);
-                values.put(Telephony.Mms.Part.MSG_ID, dummyId);
+                values.put(Telephony.Mms.Part.MSG_ID, placeholderId);
                 values.put(Telephony.Mms.Part.SEQ, 0);
                 values.put(Telephony.Mms.Part.CONTENT_TYPE,
                         mmsAttachment.getAsString(MMS_MIME_TYPE));

@@ -119,7 +119,7 @@ public class SmsProvider extends ContentProvider {
         "body",                         // getDisplayMessageBody
         "date",                         // getTimestampMillis
         "status",                       // getStatusOnIcc
-        "index_on_icc",                 // getIndexOnIcc
+        "index_on_icc",                 // getIndexOnIcc (1-based index)
         "is_status_report",             // isStatusReportMessage
         "transport_type",               // Always "sms".
         "type",                         // depend on getStatusOnIcc
@@ -455,7 +455,7 @@ public class SmsProvider extends ContentProvider {
      * Gets single message from the ICC for a subscription ID.
      *
      * @param subId the subscription ID.
-     * @param messageIndex the message index of the messaage in the ICC.
+     * @param messageIndex the message index of the messaage in the ICC (1-based index).
      * @return a cursor containing just one message from the ICC for the subscription ID.
      */
     private Cursor getSingleMessageFromIcc(int subId, int messageIndex) {
@@ -468,19 +468,24 @@ public class SmsProvider extends ContentProvider {
         // Use phone app permissions to avoid UID mismatch in AppOpsManager.noteOp() call.
         long token = Binder.clearCallingIdentity();
         try {
+            // getMessagesFromIcc() returns a zero-based list of valid messages in the ICC.
             messages = SmsManager.getSmsManagerForSubscriptionId(subId).getMessagesFromIcc();
         } finally {
             Binder.restoreCallingIdentity(token);
         }
 
-        final SmsMessage message = messages.get(messageIndex);
-        if (message == null) {
-            throw new IllegalArgumentException(
-                    "No message in index " + messageIndex + " for subId " + subId);
+        final int count = messages.size();
+        for (int i = 0; i < count; i++) {
+            SmsMessage message = messages.get(i);
+            if (message != null && message.getIndexOnIcc() == messageIndex) {
+                MatrixCursor cursor = new MatrixCursor(ICC_COLUMNS, 1);
+                cursor.addRow(convertIccToSms(message, 0, subId));
+                return cursor;
+            }
         }
-        MatrixCursor cursor = new MatrixCursor(ICC_COLUMNS, 1);
-        cursor.addRow(convertIccToSms(message, 0, subId));
-        return cursor;
+
+        throw new IllegalArgumentException(
+                "No message in index " + messageIndex + " for subId " + subId);
     }
 
     /**
@@ -499,6 +504,7 @@ public class SmsProvider extends ContentProvider {
         // Use phone app permissions to avoid UID mismatch in AppOpsManager.noteOp() call
         long token = Binder.clearCallingIdentity();
         try {
+            // getMessagesFromIcc() returns a zero-based list of valid messages in the ICC.
             messages = SmsManager.getSmsManagerForSubscriptionId(subId)
                     .getMessagesFromIcc();
         } finally {
@@ -1374,7 +1380,7 @@ public class SmsProvider extends ContentProvider {
      * Deletes the message at index from the ICC for a subscription ID.
      *
      * @param subId the subscription ID.
-     * @param messageIndex the message index of the message in the ICC.
+     * @param messageIndex the message index of the message in the ICC (1-based index).
      * @return true for succeess. Otherwise false.
      */
     private boolean deleteMessageFromIcc(int subId, int messageIndex) {
@@ -1409,6 +1415,7 @@ public class SmsProvider extends ContentProvider {
         try {
             int deletedCnt = 0;
             int maxIndex = smsManager.getSmsCapacityOnIcc();
+            // messageIndex is 1-based index of the message in the ICC.
             for (int messageIndex = 1; messageIndex <= maxIndex; messageIndex++) {
                 if (smsManager.deleteMessageFromIcc(messageIndex)) {
                     deletedCnt++;
