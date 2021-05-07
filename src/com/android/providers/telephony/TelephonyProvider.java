@@ -3227,10 +3227,11 @@ public class TelephonyProvider extends ContentProvider
                 selection,
                 selectionArgs,
                 ORDER_BY_SUB_ID)) {
-            findAndRestoreAllMatches(bundle, cursor, restoreCase);
+            findAndRestoreAllMatches(bundle.deepCopy(), cursor, restoreCase);
         }
     }
 
+    // backedUpDataBundle must to be mutable
     private void findAndRestoreAllMatches(PersistableBundle backedUpDataBundle, Cursor cursor,
             int restoreCase) {
         int[] previouslyRestoredSubIdsArray =
@@ -4700,13 +4701,17 @@ public class TelephonyProvider extends ContentProvider
 
         TelephonyManager telephonyManager =
                 (TelephonyManager) getContext().getSystemService(Context.TELEPHONY_SERVICE);
-        for (String pkg : packages) {
-            if (telephonyManager.checkCarrierPrivilegesForPackageAnyPhone(pkg) ==
+        final long token = Binder.clearCallingIdentity();
+        try {
+            for (String pkg : packages) {
+                if (telephonyManager.checkCarrierPrivilegesForPackageAnyPhone(pkg) ==
                     TelephonyManager.CARRIER_PRIVILEGE_STATUS_HAS_ACCESS) {
-                return;
+                    return;
+                }
             }
+        } finally {
+            Binder.restoreCallingIdentity(token);
         }
-
 
         throw new SecurityException("No permission to access APN settings");
     }
