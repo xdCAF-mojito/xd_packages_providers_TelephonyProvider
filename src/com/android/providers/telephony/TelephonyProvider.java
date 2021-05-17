@@ -2868,10 +2868,10 @@ public class TelephonyProvider extends ContentProvider
 
         boolean isNewBuild = false;
         String newBuildId = SystemProperties.get("ro.build.id", null);
+        SharedPreferences sp = getContext().getSharedPreferences(BUILD_ID_FILE,
+                Context.MODE_PRIVATE);
         if (!TextUtils.isEmpty(newBuildId)) {
             // Check if build id has changed
-            SharedPreferences sp = getContext().getSharedPreferences(BUILD_ID_FILE,
-                    Context.MODE_PRIVATE);
             String oldBuildId = sp.getString(RO_BUILD_ID, "");
             if (!newBuildId.equals(oldBuildId)) {
                 localLog("onCreate: build id changed from " + oldBuildId + " to " + newBuildId);
@@ -2879,7 +2879,6 @@ public class TelephonyProvider extends ContentProvider
             } else {
                 if (VDBG) log("onCreate: build id did not change: " + oldBuildId);
             }
-            sp.edit().putString(RO_BUILD_ID, newBuildId).apply();
         } else {
             if (VDBG) log("onCreate: newBuildId is empty");
         }
@@ -2894,9 +2893,15 @@ public class TelephonyProvider extends ContentProvider
             if (DBG) addAllApnSharedPrefToLocalLog();
         }
 
-        SharedPreferences sp = getContext().getSharedPreferences(ENFORCED_FILE,
+        // Write build id to SharedPreferences after APNs have been updated above by updateApnDb()
+        if (!TextUtils.isEmpty(newBuildId)) {
+            if (isNewBuild) log("onCreate: updating build id to " + newBuildId);
+            sp.edit().putString(RO_BUILD_ID, newBuildId).apply();
+        }
+
+        SharedPreferences spEnforcedFile = getContext().getSharedPreferences(ENFORCED_FILE,
                 Context.MODE_PRIVATE);
-        mManagedApnEnforced = sp.getBoolean(ENFORCED_KEY, false);
+        mManagedApnEnforced = spEnforcedFile.getBoolean(ENFORCED_KEY, false);
 
         if (VDBG) log("onCreate:- ret true");
 
@@ -3222,10 +3227,11 @@ public class TelephonyProvider extends ContentProvider
                 selection,
                 selectionArgs,
                 ORDER_BY_SUB_ID)) {
-            findAndRestoreAllMatches(bundle, cursor, restoreCase);
+            findAndRestoreAllMatches(bundle.deepCopy(), cursor, restoreCase);
         }
     }
 
+    // backedUpDataBundle must to be mutable
     private void findAndRestoreAllMatches(PersistableBundle backedUpDataBundle, Cursor cursor,
             int restoreCase) {
         int[] previouslyRestoredSubIdsArray =
@@ -4695,13 +4701,17 @@ public class TelephonyProvider extends ContentProvider
 
         TelephonyManager telephonyManager =
                 (TelephonyManager) getContext().getSystemService(Context.TELEPHONY_SERVICE);
-        for (String pkg : packages) {
-            if (telephonyManager.checkCarrierPrivilegesForPackageAnyPhone(pkg) ==
+        final long token = Binder.clearCallingIdentity();
+        try {
+            for (String pkg : packages) {
+                if (telephonyManager.checkCarrierPrivilegesForPackageAnyPhone(pkg) ==
                     TelephonyManager.CARRIER_PRIVILEGE_STATUS_HAS_ACCESS) {
-                return;
+                    return;
+                }
             }
+        } finally {
+            Binder.restoreCallingIdentity(token);
         }
-
 
         throw new SecurityException("No permission to access APN settings");
     }
