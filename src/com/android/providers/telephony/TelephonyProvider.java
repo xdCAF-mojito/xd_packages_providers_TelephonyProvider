@@ -111,6 +111,7 @@ import android.telephony.data.ApnSetting;
 import android.text.TextUtils;
 import android.util.ArrayMap;
 import android.util.ArraySet;
+import android.util.AtomicFile;
 import android.util.Log;
 import android.util.Pair;
 import android.util.Xml;
@@ -280,6 +281,40 @@ public class TelephonyProvider extends ContentProvider
     private Injector mInjector;
 
     private boolean mManagedApnEnforced;
+
+    /**
+     * Mobile country codes where there is a high likelyhood that the MNC has 3 digits
+     * and need one more prefix zero to set correct mobile network code value.
+     *
+     * Please note! The best solution is to add the MCCMNC combo to carrier id
+     * carrier_list, this is just a best effort.
+     */
+    private static final String[] COUNTRY_MCC_WITH_THREE_DIGIT_MNC = {
+            "302" // Canada
+           ,"310" // Guam, USA
+           ,"311" // USA
+           ,"312" // USA
+           ,"313" // USA
+           ,"316" // USA
+           ,"334" // Mexico
+           ,"338" // Bermuda, Jamaica
+           ,"342" // Barbados
+           ,"344" // Antigua and Barbuda
+           ,"346" // Cayman Islands
+           ,"348" // British Virgin Islands
+           ,"356" // Saint Kitts and Nevis
+           ,"358" // Saint Lucia
+           ,"360" // Saint Vincent and the Grenadines
+           ,"365" // Anguilla
+           ,"366" // Dominica
+           ,"376" // Turks and Caicos Islands
+           ,"405" // India
+           ,"708" // Honduras
+           ,"722" // Argentina
+           ,"732" // Colombia
+           ,"738" // Guyana
+           ,"750" // Falkland Islands
+            };
 
     /**
      * Available radio technologies for GSM, UMTS and CDMA.
@@ -3171,10 +3206,17 @@ public class TelephonyProvider extends ContentProvider
 
     @VisibleForTesting
     boolean writeSimSettingsToInternalStorage(byte[] data) {
-        File file = new File(getContext().getFilesDir(), BACKED_UP_SIM_SPECIFIC_SETTINGS_FILE);
-        try (FileOutputStream fos = new FileOutputStream(file)) {
+        AtomicFile atomicFile = new AtomicFile(
+                new File(getContext().getFilesDir(), BACKED_UP_SIM_SPECIFIC_SETTINGS_FILE));
+        FileOutputStream fos = null;
+        try {
+            fos = atomicFile.startWrite();
             fos.write(data);
+            atomicFile.finishWrite(fos);
         } catch (IOException e) {
+            if (fos != null) {
+                atomicFile.failWrite(fos);
+            }
             loge("Not able to create internal file with per-sim configs. Failed with error "
                     + e);
             return false;
@@ -3201,8 +3243,9 @@ public class TelephonyProvider extends ContentProvider
             return;
         }
 
+        AtomicFile atomicFile = new AtomicFile(file);
         PersistableBundle bundle = null;
-        try (FileInputStream fis = new FileInputStream(file)) {
+        try (FileInputStream fis = atomicFile.openRead()) {
             bundle = PersistableBundle.readFromStream(fis);
         } catch (IOException e) {
             loge("Failed to convert backed up per-sim configs to bundle. Stopping restore. "
@@ -3244,8 +3287,8 @@ public class TelephonyProvider extends ContentProvider
                 .getInt(KEY_BACKUP_DATA_FORMAT_VERSION, -1);
 
         Resources r = getContext().getResources();
-        List<String> wfcEntitlementRequiredCountries = Arrays.asList(r.getStringArray(
-                    R.array.wfc_entitlement_required_countries));
+        List<String> wfcRestoreBlockedCountries = Arrays.asList(r.getStringArray(
+                    R.array.wfc_restore_blocked_countries));
 
         while (cursor != null && cursor.moveToNext()) {
             // Get all the possible matching criteria.
@@ -3283,7 +3326,7 @@ public class TelephonyProvider extends ContentProvider
 
                 SimRestoreMatch currSimRestoreMatch = new SimRestoreMatch(
                         currIccIdFromDb, currCarrierIdFromDb, currPhoneNumberFromDb,
-                        isoCountryCodeFromDb, wfcEntitlementRequiredCountries, currRow,
+                        isoCountryCodeFromDb, wfcRestoreBlockedCountries, currRow,
                         backupDataFormatVersion);
 
                 if (currSimRestoreMatch == null) {
@@ -3371,7 +3414,7 @@ public class TelephonyProvider extends ContentProvider
 
         public SimRestoreMatch(String iccIdFromDb, int carrierIdFromDb,
                 String phoneNumberFromDb, String isoCountryCodeFromDb,
-                List<String> wfcEntitlementRequiredCountries,
+                List<String> wfcRestoreBlockedCountries,
                 PersistableBundle backedUpSimInfoEntry, int backupDataFormatVersion) {
             subId = backedUpSimInfoEntry.getInt(
                 Telephony.SimInfo.COLUMN_UNIQUE_KEY_SUBSCRIPTION_ID,
@@ -3401,7 +3444,7 @@ public class TelephonyProvider extends ContentProvider
 
             contentValues = convertBackedUpDataToContentValues(
                     backedUpSimInfoEntry, backupDataFormatVersion, isoCountryCodeFromDb,
-                    wfcEntitlementRequiredCountries);
+                    wfcRestoreBlockedCountries);
             matchScore = calculateMatchScore();
             matchingCriteria = calculateMatchingCriteria();
         }
@@ -3457,7 +3500,7 @@ public class TelephonyProvider extends ContentProvider
         private ContentValues convertBackedUpDataToContentValues(
                 PersistableBundle backedUpSimInfoEntry, int backupDataFormatVersion,
                 String isoCountryCodeFromDb,
-                List<String> wfcEntitlementRequiredCountries) {
+                List<String> wfcRestoreBlockedCountries) {
             if (DATABASE_VERSION != 51 << 16) {
                 throw new AssertionError("The database schema has been updated which might make "
                     + "the format of #BACKED_UP_SIM_SPECIFIC_SETTINGS_FILE outdated. Make sure to "
@@ -3525,7 +3568,7 @@ public class TelephonyProvider extends ContentProvider
                             Telephony.SimInfo.COLUMN_VT_IMS_ENABLED,
                             DEFAULT_INT_COLUMN_VALUE));
             if (isoCountryCodeFromDb != null
-                    && !wfcEntitlementRequiredCountries
+                    && !wfcRestoreBlockedCountries
                             .contains(isoCountryCodeFromDb.toLowerCase())) {
                 // Don't restore COLUMN_WFC_IMS_ENABLED if the sim is from one of the countries that
                 // requires WFC entitlement.
@@ -4900,18 +4943,32 @@ public class TelephonyProvider extends ContentProvider
         }
         String twoDigitMnc = String.format(Locale.getDefault(), "%02d", mnc);
         String threeDigitMnc = "0" + twoDigitMnc;
+        boolean threeDigitNetworkCode =
+                Arrays.asList(COUNTRY_MCC_WITH_THREE_DIGIT_MNC).contains(mcc);
+        int twoDigitResult = countMccMncInCarrierList(context, mcc + twoDigitMnc);
+        int threeDigitResult = countMccMncInCarrierList(context, mcc + threeDigitMnc);
 
-        try (
-                Cursor twoDigitMncCursor = context.getContentResolver().query(
-                        Telephony.CarrierId.All.CONTENT_URI,
-                        /* projection */ null,
-                        /* selection */ Telephony.CarrierId.All.MCCMNC + "=?",
-                        /* selectionArgs */ new String[]{mcc + twoDigitMnc}, null)
-        ) {
-            if (twoDigitMncCursor.getCount() > 0) {
-                return twoDigitMnc;
-            }
+        if ((threeDigitResult > twoDigitResult) ||
+                (threeDigitNetworkCode && (twoDigitResult == threeDigitResult))) {
             return threeDigitMnc;
+        } else {
+            return twoDigitMnc;
+        }
+    }
+
+    /**
+     * Check carrier_list how many mcc mnc combo matches there are
+     */
+    private static int countMccMncInCarrierList(Context ctx, String mccMncCombo) {
+        try (
+            Cursor mccMncCursor = ctx.getContentResolver().query(
+                    Telephony.CarrierId.All.CONTENT_URI,
+                    /* projection */ null,
+                    /* selection */ Telephony.CarrierId.All.MCCMNC + "=?",
+                    /* selectionArgs */ new String[]{mccMncCombo}, null);
+        )
+        {
+            return mccMncCursor.getCount();
         }
     }
 
